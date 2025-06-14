@@ -1,5 +1,5 @@
 {
-  networking.hostapd = {
+  services.hostapd = {
     enable = true;
     radios.wlp2s0 = {
       ssid = "My New Test Network";
