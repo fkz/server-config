@@ -10,6 +10,7 @@
       ./hardware-configuration.nix
       ./updater.nix
       ./wifi.nix
+      ./home-assistant.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
