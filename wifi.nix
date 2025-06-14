@@ -5,9 +5,7 @@
     radios.wlp2s0.networks.wlp2s0 = {
       ssid = "My New Test Network";
       authentication = {
-        mode = "wpa2-sha1";
-        wpaPasswordFile = "/run/secrets/wifi";
-        enableRecommendedPairwiseCiphers = true;
+        mode = "none";
       };
     };
   };
