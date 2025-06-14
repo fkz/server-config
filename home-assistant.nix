@@ -54,4 +54,36 @@
       };
     };
   };
+
+  networking.firewall = {
+    enable = true;
+    allowPing = true;
+
+    allowedTCPPorts = [ 443 80 ];
+  };
+
+    services.nginx = {
+    enable = true;
+    recommendedGzipSettings = true;
+    recommendedProxySettings = true;
+    recommendedTlsSettings = true;
+
+    virtualHosts."assistant.schmitthenner.eu" = {
+      enableACME = true;
+      forceSSL = true;
+
+      locations."/" = {
+        proxyPass = "http://localhost:8123";
+        proxyWebsockets = true; # Home Assistant uses websockets
+      };
+    };
+  };
+
+  security.acme = {
+    acceptTerms = true;
+    email = "development@schmitthenner.eu";
+    certs."assistant.schmitthenner.eu" = {
+      extraDomainNames = [ ];
+    };
+  };
 }
