@@ -14,7 +14,7 @@ let
       if [ "$old_commit" != "$remote_commit" ]; then
           echo "New commit detected. Updating..."
           git pull --ff-only
-          nixos-rebuild switch --no-update-lockfile
+          nixos-rebuild switch
       else
           echo "No update needed."
       fi
