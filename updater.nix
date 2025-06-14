@@ -30,6 +30,7 @@ in {
     serviceConfig = {
       Type = "oneshot";
       ExecStart = [ "${updateNixosApp}/bin/nixos-update" ];
+      TimeoutStartSec = "10min";
     };
   };
 
