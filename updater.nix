@@ -9,7 +9,7 @@ let
 
       old_commit=$(git rev-parse HEAD)
       git fetch origin
-      remote_commit=$(git rev-parse @{u})
+      remote_commit=$(git rev-parse '@{u}')
 
       if [ "$old_commit" != "$remote_commit" ]; then
           echo "New commit detected. Updating..."
