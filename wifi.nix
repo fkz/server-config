@@ -6,8 +6,8 @@
       ssid = "My New Test Network";
       authentication = {
         mode = "none";
-#        saePasswords = [ { passwordFile = "/run/secrets/wifi"; } ];
-#        enableRecommendedPairwiseCiphers = true;
+        saePasswords = [ { passwordFile = "/run/secrets/wifi"; } ];
+        enableRecommendedPairwiseCiphers = true;
       };
     };
   };
