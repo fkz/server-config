@@ -15,23 +15,6 @@
       homeassistant = true;
       frontend = true;
     };
-
-    package = pkgs.zigbee2mqtt.overrideAttrs (final: prev: {
-      version = "618b318214ca58b94a1068e0320d9a163a1cd22f";
-      npmDepsHash = "sha256-06otexq4T8fRnAUq2yTmFRQIp/c13NXKuQ6AdgbwwzI=";
-
-      src = pkgs.fetchFromGitHub {
-        owner = "Koenkk";
-        repo = "zigbee2mqtt";
-        rev = final.version;
-        hash = "sha256-UFVK8C/NYEZT4AcHowwvxaohk0mDgb8isYBuOoDkLg8=";
-      };
-
-      npmDeps = prev.npmDeps.overrideAttrs {
-        outputHash = final.npmDepsHash;
-        src = final.src;
-      };
-    });
   };
 
   services.home-assistant = {
