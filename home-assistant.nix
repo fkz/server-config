@@ -53,7 +53,7 @@
     allowedTCPPorts = [ 443 80 ];
   };
 
-    services.nginx = {
+  services.nginx = {
     enable = true;
     recommendedGzipSettings = true;
     recommendedProxySettings = true;
@@ -66,6 +66,9 @@
       locations."/" = {
         proxyPass = "http://localhost:8123";
         proxyWebsockets = true; # Home Assistant uses websockets
+      };
+      locations."/zig2q" = {
+        proxyPass = "http://localhost:8080";
       };
     };
   };
