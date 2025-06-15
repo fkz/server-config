@@ -67,8 +67,8 @@
         proxyPass = "http://localhost:8123";
         proxyWebsockets = true; # Home Assistant uses websockets
       };
-      locations."/zig2q" = {
-        proxyPass = "http://localhost:8080";
+      locations."/zig2q/" = {
+        proxyPass = "http://localhost:8080/";
       };
     };
   };
