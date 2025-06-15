@@ -41,8 +41,8 @@
           command = "cat /sys/class/thermal/thermal_zone2/temp";
           unit_of_measurement = "°C";
           value_template = "{{ (value | int / 1000) | round(1) }}";
-        };
-      }];
+        }];
+      };
     };
   };
 
