@@ -19,7 +19,7 @@
 
   services.home-assistant = {
     enable = true;
-    extraComponents = [ "mobile_app" "mqtt" "radio_browser" "default_config" "met" "esphome" "ollama" ];
+    extraComponents = [ "mobile_app" "mqtt" "radio_browser" "default_config" "met" "esphome" "ollama" "command_line" ];
     config = {
       default_config = {};
       homeassistant = {
