@@ -35,14 +35,14 @@
         use_x_forwarded_for = true;
         trusted_proxies = [ "::1" "127.0.0.1" ]; 
       };
-      command_line = {
-        sensor = [{
+      command_line = [{
+        sensor = {
           name = "CPU Temperature";
           command = "cat /sys/class/thermal/thermal_zone2/temp";
           unit_of_measurement = "°C";
           value_template = "{{ (value | int / 1000) | round(1) }}";
-        }];
-      };
+        };
+      }];
     };
   };
 
