@@ -35,7 +35,7 @@
         use_x_forwarded_for = true;
         trusted_proxies = [ "::1" "127.0.0.1" ]; 
       };
-      command_line: {
+      command_line = {
         sensor = [{
           name = "CPU Temperature";
           command = "cat /sys/class/thermal/thermal_zone2/temp";
