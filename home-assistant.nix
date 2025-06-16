@@ -16,6 +16,7 @@
       frontend = {
         enabled = true;
         base_url = "/zig2q";
+        url = "https://assistant.schmitthenner.eu";
       };
     };
   };
