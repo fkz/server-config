@@ -72,7 +72,7 @@
         proxyWebsockets = true; # Home Assistant uses websockets
       };
       locations."/zig2q/" = {
-        basicAuthFile = ".htpasswd";
+        basicAuthFile = /var/lib/htpasswd;
         proxyPass = "http://localhost:8080/";
         proxyWebsockets = true;
       };
