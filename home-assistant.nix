@@ -72,6 +72,7 @@
       };
       locations."/zig2q/" = {
         proxyPass = "http://localhost:8080/";
+        proxyWebsockets = true;
       };
     };
   };
