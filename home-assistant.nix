@@ -13,7 +13,10 @@
         port = "/dev/serial/by-id/usb-Texas_Instruments_TI_CC2531_USB_CDC___0X00124B001DF40090-if00";
       };
       homeassistant = true;
-      frontend = true;
+      frontend = {
+        enabled = true;
+        base_url = "/zig2q";
+      };
     };
   };
 
