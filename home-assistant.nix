@@ -86,4 +86,22 @@
       extraDomainNames = [ ];
     };
   };
+
+  systemd.services.speedtest = {
+    description = "Run speedtest-go and log result";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.speedtest-go}/bin/speedtest-go --format=json >> /var/log/speedtest.log";
+    };
+  };
+
+  systemd.timers.speedtest = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "5min";
+      OnUnitActiveSec = "30min";
+      Unit = "speedtest.service";
+    };
+  };
+}
 }
