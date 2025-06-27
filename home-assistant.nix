@@ -91,7 +91,7 @@
     description = "Run speedtest-go and log result";
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.speedtest-go}/bin/speedtest-go --format=json >> /var/log/speedtest.log";
+      ExecStart = "/bin/sh -c '${pkgs.speedtest} --format=json | ${pkgs.mqtt} -h localhost -t home-speedtest -l'";
     };
   };
 
