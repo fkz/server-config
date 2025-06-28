@@ -55,10 +55,12 @@
           value_template = "value_json.servers[0].dl_speed";
         };
       } {
+        sensor = {
           name = "Internet Upload Speed";
           state_topic = "home-speedtest";
           device_class = "data_rate";
           value_template = "value_json.servers[0].ul_speed";
+        };
       }];
     };
   };
