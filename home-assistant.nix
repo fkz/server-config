@@ -47,6 +47,19 @@
           value_template = "{{ (value | int / 1000) | round(1) }}";
         };
       }];
+      mqtt = [{
+        sensor = {
+          name = "Internet Download Speed";
+          state_topic = "home-speedtest";
+          device_class = "data_rate";
+          value_template = "value_json.servers[0].dl_speed";
+        };
+      } {
+          name = "Internet Upload Speed";
+          state_topic = "home-speedtest";
+          device_class = "data_rate";
+          value_template = "value_json.servers[0].ul_speed";
+      }];
     };
   };
 
