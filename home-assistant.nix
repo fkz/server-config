@@ -52,6 +52,7 @@
           name = "Internet Download Speed";
           state_topic = "home-speedtest";
           device_class = "data_rate";
+          unique_id = "int_dl_speed";
           value_template = "value_json.servers[0].dl_speed";
         };
       } {
@@ -59,6 +60,7 @@
           name = "Internet Upload Speed";
           state_topic = "home-speedtest";
           device_class = "data_rate";
+          unique_id = "int_ul_speed";
           value_template = "value_json.servers[0].ul_speed";
         };
       }];
