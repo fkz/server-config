@@ -61,7 +61,7 @@
           state_topic = "home-speedtest";
           device_class = "data_rate";
           unique_id = "int_ul_speed";
-          value_template = "{{ value_json.servers[0].ul_speed }}";
+          value_template = "{{ value_json.servers[0].ul_speed | int / 125000 | round(1) }}";
         };
       }];
     };
