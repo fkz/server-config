@@ -120,4 +120,41 @@
       Unit = "speedtest.service";
     };
   };
+
+  systemd.services.inwx-ddns = {
+    description = "INWX DDNS updater";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.writeShellApplication {
+        name = "inwx-ddns";
+        runtimeInputs = [pkgs.iproute2 pkgs.gawk pkgs.curl]; 
+        text = ''
+          USERNAME=home-assistant
+          PASSWORD=SrQ3kQN6ygbEcAv4agcpCVWiJ
+          HOSTNAME=assistant.schmitthenner.eu
+
+          IPV6=$(ip -6 addr show dev wlp2s0 \
+            | awk '/inet6/ && /global/ && /dynamic/ && /mngtmpaddr/ && !/temporary/ && !/deprecated/ { print $2 }' \
+            | cut -d/ -f1 | head -n1)
+          
+          UPDATE_URL="https://$USERNAME:$PASSWORD@dyndns.inwx.com/nic/update?hostname=$HOSTNAME"
+          [ -n "$IPV6" ] && UPDATE_URL="$UPDATE_URL&myipv6=$IPV6"
+
+          echo "Updating INWX with:"
+          echo "  IPv6: $IPV6"
+
+          curl -s "$UPDATE_URL"
+        '';
+      }}/bin/inwx-ddns";
+    };
+  };
+
+  systemd.timers.inwx-ddns = {
+    description = "Run INWX DDNS updater every 5 minutes";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "1min";
+      OnUnitActiveSec = "5min";
+    };
+  };
 }
