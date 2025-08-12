@@ -133,7 +133,7 @@
           PASSWORD=SrQ3kQN6ygbEcAv4agcpCVWiJ
           HOSTNAME=assistant.schmitthenner.eu
 
-          IPV6=$(ip -6 addr show dev wlp2s0 \
+          IPV6=$(ip -6 addr show dev enp0s25 \
             | awk '/inet6/ && /global/ && /dynamic/ && /mngtmpaddr/ && !/temporary/ && !/deprecated/ { print $2 }' \
             | cut -d/ -f1 | head -n1)
           
