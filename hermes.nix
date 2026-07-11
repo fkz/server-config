@@ -7,12 +7,32 @@
     enable = true;
     addToSystemPackages = true;
 
-    # Runtime-only credentials for the messaging gateway. This file is read by
-    # the NixOS activation script and merged into /var/lib/hermes/.hermes/.env;
-    # it must never be committed or placed in the Nix store. Provision it as a
-    # root-owned 0600 file containing TELEGRAM_BOT_TOKEN and
-    # TELEGRAM_ALLOWED_USERS (the owner's numeric Telegram user ID).
-    environmentFiles = [ "/var/lib/hermes/telegram-gateway.env" ];
+    # Runtime-only credentials for the messaging gateways. These files are read
+    # by the NixOS activation script and merged into
+    # /var/lib/hermes/.hermes/.env; they must never be committed or placed in
+    # the Nix store. telegram-gateway.env is root-owned (0600) and contains
+    # TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USERS. matrix-gateway.env is
+    # hermes-owned (0600) and contains only MATRIX_PASSWORD for the dedicated
+    # @hermes Matrix account.
+    environmentFiles = [
+      "/var/lib/hermes/telegram-gateway.env"
+      "/var/lib/hermes/matrix-gateway.env"
+    ];
+
+    # The Matrix dependency group provides the mautrix client. E2EE remains
+    # explicitly disabled: the libolm implementation currently required by the
+    # adapter is deprecated and blocked by NixOS due to known crypto issues.
+    # Traffic still stays inside the Tailnet and uses HTTPS/TLS.
+    extraDependencyGroups = [ "matrix" ];
+
+    environment = {
+      MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
+      MATRIX_USER_ID = "@hermes:home.taila70923.ts.net";
+      MATRIX_ALLOWED_USERS = "@fabian:home.taila70923.ts.net";
+      MATRIX_E2EE_MODE = "off";
+      MATRIX_SESSION_SCOPE = "room";
+      MATRIX_AUTO_THREAD = "true";
+    };
 
     settings = {
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
