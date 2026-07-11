@@ -32,6 +32,10 @@
       MATRIX_E2EE_MODE = "off";
       MATRIX_SESSION_SCOPE = "room";
       MATRIX_AUTO_THREAD = "true";
+      # In DMs, reply to the triggering message in its own Matrix thread.
+      # This keeps follow-ups attached to the original request and preserves
+      # its context independently from the room timeline.
+      MATRIX_DM_AUTO_THREAD = "true";
     };
 
     settings = {
