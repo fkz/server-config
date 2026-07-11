@@ -12,7 +12,10 @@
       serial = {
         port = "/dev/serial/by-id/usb-Texas_Instruments_TI_CC2531_USB_CDC___0X00124B001DF40090-if00";
       };
-      homeassistant = true;
+      # Zigbee2MQTT 2.x represents the Home Assistant integration as an object.
+      homeassistant = {
+        enabled = true;
+      };
       frontend = {
         enabled = true;
         base_url = "/zig2q";
@@ -98,7 +101,7 @@
 
   security.acme = {
     acceptTerms = true;
-    email = "development@schmitthenner.eu";
+    defaults.email = "development@schmitthenner.eu";
     certs."assistant.schmitthenner.eu" = {
       extraDomainNames = [ ];
     };
