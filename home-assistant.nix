@@ -137,7 +137,7 @@
           HOSTNAME=assistant.schmitthenner.eu
 
           IPV6=$(ip -6 addr show dev enp0s25 \
-            | awk '/inet6/ && /global/ && /dynamic/ && /mngtmpaddr/ && !/temporary/ && !/deprecated/ { print $2 }' \
+            | awk '/inet6/ && /global/ && /dynamic/ && /mngtmpaddr/ && !/temporary/ && !/deprecated/ && $2 ~ /^[23][0-9a-fA-F]*:/ { print $2 }' \
             | cut -d/ -f1 | head -n1)
           
           UPDATE_URL="https://$USERNAME:$PASSWORD@dyndns.inwx.com/nic/update?hostname=$HOSTNAME"
