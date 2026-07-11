@@ -3,6 +3,7 @@
 let
   matrixHost = "home.taila70923.ts.net";
   synapsePort = 8008;
+  tailnetHttpsPort = 8443;
 in
 {
   # Synapse defaults to PostgreSQL. Provision its local database and role
@@ -33,7 +34,7 @@ in
 
     settings = {
       server_name = matrixHost;
-      public_baseurl = "https://${matrixHost}/";
+      public_baseurl = "https://${matrixHost}:${toString tailnetHttpsPort}/";
       report_stats = false;
 
       # Accounts are created explicitly with register_new_matrix_user; public
@@ -65,9 +66,10 @@ in
     };
   };
 
-  # Persist the private Tailnet HTTPS proxy declaratively. This requires
-  # HTTPS certificates to be enabled in the Tailscale admin console first.
-  # It terminates TLS before forwarding exclusively to Synapse on loopback.
+  # Persist the private Tailnet HTTPS proxy declaratively on 8443: nginx owns
+  # public port 443 for Home Assistant. This requires HTTPS certificates to be
+  # enabled in the Tailscale admin console first. Tailscale terminates TLS
+  # before forwarding exclusively to Synapse on loopback.
   systemd.services.matrix-tailnet-proxy = {
     description = "Tailscale HTTPS proxy for the private Matrix homeserver";
     wantedBy = [ "multi-user.target" ];
@@ -77,8 +79,8 @@ in
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --bg --https=443 http://127.0.0.1:${toString synapsePort}";
-      ExecStop = "${config.services.tailscale.package}/bin/tailscale serve --https=443 off";
+      ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --bg --https=${toString tailnetHttpsPort} http://127.0.0.1:${toString synapsePort}";
+      ExecStop = "${config.services.tailscale.package}/bin/tailscale serve --https=${toString tailnetHttpsPort} off";
     };
   };
 
