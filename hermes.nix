@@ -29,6 +29,9 @@
       MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
       MATRIX_USER_ID = "@hermes:home.taila70923.ts.net";
       MATRIX_ALLOWED_USERS = "@fabian:home.taila70923.ts.net";
+      # Canonical room ID for #hermes-home:home.taila70923.ts.net. Hermes uses
+      # it as the default destination for cron results and notifications.
+      MATRIX_HOME_ROOM = "!VQsNUaWqHuXRQdXfOz:home.taila70923.ts.net";
       MATRIX_E2EE_MODE = "off";
       MATRIX_SESSION_SCOPE = "room";
       MATRIX_AUTO_THREAD = "true";
