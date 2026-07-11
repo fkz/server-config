@@ -3,11 +3,18 @@
     # Stable NixOS release channel. Update the lock file with:
     #   nix flake update --flake /etc/nixos
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    hermes-agent = {
+      url = "github:NousResearch/hermes-agent";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-  outputs = inputs@{ self, nixpkgs, ... }: {
+  outputs = inputs@{ self, nixpkgs, hermes-agent, ... }: {
     # NOTE: 'nixos' is the default hostname
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
-      modules = [ ./configuration.nix ];
+      modules = [
+        hermes-agent.nixosModules.default
+        ./configuration.nix
+      ];
     };
   };
 }
