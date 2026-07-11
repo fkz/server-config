@@ -7,6 +7,13 @@
     enable = true;
     addToSystemPackages = true;
 
+    # Runtime-only credentials for the messaging gateway. This file is read by
+    # the NixOS activation script and merged into /var/lib/hermes/.hermes/.env;
+    # it must never be committed or placed in the Nix store. Provision it as a
+    # root-owned 0600 file containing TELEGRAM_BOT_TOKEN and
+    # TELEGRAM_ALLOWED_USERS (the owner's numeric Telegram user ID).
+    environmentFiles = [ "/var/lib/hermes/telegram-gateway.env" ];
+
     settings = {
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
