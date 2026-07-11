@@ -12,6 +12,7 @@
       ./wifi.nix
       ./home-assistant.nix
       ./hermes.nix
+      ./matrix.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
