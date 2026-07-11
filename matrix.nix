@@ -5,6 +5,19 @@ let
   synapsePort = 8008;
 in
 {
+  # Synapse defaults to PostgreSQL. Provision its local database and role
+  # declaratively; without this service Synapse cannot complete startup.
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "matrix-synapse" ];
+    ensureUsers = [
+      {
+        name = "matrix-synapse";
+        ensureDBOwnership = true;
+      }
+    ];
+  };
+
   # Private Matrix homeserver: Synapse is never bound to a public interface.
   # Tailscale Serve terminates TLS on the tailnet address and proxies to this
   # loopback-only listener. No public firewall port or Matrix federation is
