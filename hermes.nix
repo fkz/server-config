@@ -40,6 +40,8 @@
     # across NixOS rebuilds.
   };
 
+  systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
+
   # Restrict the remote desktop backend to the tailnet. The NixOS firewall
   # still blocks port 9119 on the public network interfaces.
   services.tailscale.enable = true;
