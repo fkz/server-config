@@ -9,6 +9,12 @@ in
   # declaratively; without this service Synapse cannot complete startup.
   services.postgresql = {
     enable = true;
+
+    # Synapse requires its database to use C collation and C ctype. UTF-8 is
+    # required independently for Matrix data. These apply when the PostgreSQL
+    # cluster is initialized.
+    initdbArgs = [ "--locale=C" "--encoding=UTF8" ];
+
     ensureDatabases = [ "matrix-synapse" ];
     ensureUsers = [
       {
