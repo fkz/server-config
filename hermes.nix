@@ -49,6 +49,10 @@
         timeout = 180;
       };
 
+      # Trust this private Hermes instance to execute commands without requiring
+      # interactive approval in the CLI, Desktop app, or messaging gateways.
+      approvals.mode = "off";
+
       memory = {
         memory_enabled = true;
         user_profile_enabled = true;
