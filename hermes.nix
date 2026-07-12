@@ -26,7 +26,11 @@
       # Canonical room ID for #hermes-home:home.taila70923.ts.net. Hermes uses
       # it as the default destination for cron results and notifications.
       MATRIX_HOME_ROOM = "!VQsNUaWqHuXRQdXfOz:home.taila70923.ts.net";
-      MATRIX_E2EE_MODE = "off";
+      # Encrypted rooms were ignored while E2EE was disabled. The Matrix
+      # dependency group now supplies the required crypto dependencies; use a
+      # stable device ID so the persistent crypto store survives restarts.
+      MATRIX_E2EE_MODE = "required";
+      MATRIX_DEVICE_ID = "hermes-agent";
       MATRIX_SESSION_SCOPE = "room";
       MATRIX_AUTO_THREAD = "true";
       # In DMs, reply to the triggering message in its own Matrix thread.
