@@ -49,6 +49,15 @@
         timeout = 180;
       };
 
+      # Use the more accurate local Whisper model for multilingual voice
+      # messages. This is slower than the default `base` model but should reduce
+      # German transcription errors while retaining English support.
+      stt = {
+        enabled = true;
+        provider = "local";
+        local.model = "small";
+      };
+
       # Trust this private Hermes instance to execute commands without requiring
       # interactive approval in the CLI, Desktop app, or messaging gateways.
       approvals.mode = "off";
