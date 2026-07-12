@@ -1,5 +1,25 @@
 { config, pkgs, ... }:
 
+let
+  nixosUpdateControlPlugin = pkgs.linkFarm "nixos-update-control" [
+    {
+      name = "plugin.yaml";
+      path = ./plugins/nixos-update-control/plugin.yaml;
+    }
+    {
+      name = "schemas.py";
+      path = ./plugins/nixos-update-control/schemas.py;
+    }
+    {
+      name = "tools.py";
+      path = ./plugins/nixos-update-control/tools.py;
+    }
+    {
+      name = "__init__.py";
+      path = ./plugins/nixos-update-control/__init__.py;
+    }
+  ];
+in
 {
   # Hermes runs as a dedicated, unprivileged system user and persists its
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
@@ -25,6 +45,10 @@
     # Matrix adapter is deprecated and blocked by NixOS due to known crypto
     # issues. Traffic still stays inside the Tailnet and uses HTTPS/TLS.
     extraDependencyGroups = [ "matrix" "messaging" ];
+
+    # Store the plugin declaratively. Its fixed handler invokes sudo only for
+    # the exact systemctl command granted below; it accepts no tool arguments.
+    extraPlugins = [ nixosUpdateControlPlugin ];
 
     environment = {
       MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
@@ -60,6 +84,8 @@
         memory_enabled = true;
         user_profile_enabled = true;
       };
+
+      plugins.enabled = [ "nixos-update-control" ];
     };
 
     # Bootstrap the OpenAI Codex OAuth login on the server after deployment:
@@ -67,6 +93,20 @@
     # The resulting auth.json stays in /var/lib/hermes/.hermes and is preserved
     # across NixOS rebuilds.
   };
+
+  # The Hermes service account is otherwise unprivileged. Grant only this
+  # argument-exact command; no other unit or systemctl action is permitted.
+  security.sudo.extraRules = [
+    {
+      users = [ "hermes" ];
+      commands = [
+        {
+          command = "/run/current-system/sw/bin/systemctl start nixos-update";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
 
   systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
 

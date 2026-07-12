@@ -1,0 +1,5 @@
+name: nixos-update-control
+version: 1.0.0
+description: "Narrowly scoped NixOS update control: starts only the nixos-update systemd unit."
+provides_tools:
+  - start_nixos_update
