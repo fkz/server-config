@@ -1,11 +1,23 @@
 { config, pkgs, ... }:
 
-{
+let
+  nixosUpdatePlugin = pkgs.linkFarm "hermes-nixos-update-plugin" [
+    {
+      name = "plugin.yaml";
+      path = ./hermes-plugins/nixos-update/plugin.yaml;
+    }
+    {
+      name = "__init__.py";
+      path = ./hermes-plugins/nixos-update/__init__.py;
+    }
+  ];
+in {
   # Hermes runs as a dedicated, unprivileged system user and persists its
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
   services.hermes-agent = {
     enable = true;
     addToSystemPackages = true;
+    extraPlugins = [ nixosUpdatePlugin ];
 
     # Runtime-only credentials for the messaging gateways. These files are read
     # by the NixOS activation script and merged into
@@ -36,6 +48,8 @@
     };
 
     settings = {
+      plugins.enabled = [ "nixos-update" ];
+
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
       model = {
@@ -64,6 +78,16 @@
     # The resulting auth.json stays in /var/lib/hermes/.hermes and is preserved
     # across NixOS rebuilds.
   };
+
+  # The plugin can only queue this one fixed systemd unit. --no-block lets the
+  # update continue independently when nixos-rebuild restarts Hermes itself.
+  security.sudo.extraRules = [{
+    users = [ "hermes" ];
+    commands = [{
+      command = "/run/current-system/sw/bin/systemctl start --no-block nixos-update.service";
+      options = [ "NOPASSWD" ];
+    }];
+  }];
 
   systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
 

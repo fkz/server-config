@@ -1,0 +1,6 @@
+name: nixos-update
+version: 1.0.0
+description: "Start the server's declarative NixOS update service with narrowly scoped privileges."
+author: Fabian
+provides_tools:
+  - nixos_update
