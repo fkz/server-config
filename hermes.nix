@@ -19,13 +19,6 @@
       "/var/lib/hermes/matrix-gateway.env"
     ];
 
-    # The Matrix group provides the mautrix client; the messaging group provides
-    # python-telegram-bot for the configured Telegram adapter. E2EE remains
-    # explicitly disabled: the libolm implementation currently required by the
-    # Matrix adapter is deprecated and blocked by NixOS due to known crypto
-    # issues. Traffic still stays inside the Tailnet and uses HTTPS/TLS.
-    extraDependencyGroups = [ "matrix" "messaging" ];
-
     environment = {
       MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
       MATRIX_USER_ID = "@hermes:home.taila70923.ts.net";
