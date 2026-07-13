@@ -157,32 +157,67 @@ let
       helper = /bin/github-app-git-credential
     EOF
   '';
-  # A small /bin symlink tree is the only executable surface supplied by the
-  # image.  Its targets are immutable store paths, resolved after /nix/store is
-  # mounted read-only from the host.
-  hermesNixSandboxRoot = pkgs.buildEnv {
-    name = "hermes-nix-sandbox-root";
-    paths = hermesNixSandboxPackages;
-    pathsToLink = [ "/bin" ];
-  };
-  hermesNixSandboxImage = pkgs.dockerTools.buildLayeredImage {
-    name = "hermes-nix-sandbox";
-    tag = "latest";
-    contents = [ hermesNixSandboxRoot hermesNixSandboxEtc ];
-    config = {
-      Env = [
-        # Hermes' Docker backend supplies /root as an ephemeral tmpfs.  Unlike
-        # /home/hermes, it therefore exists on every newly created container.
-        "HOME=/root"
-        "PATH=/bin"
-        "GIT_CONFIG_SYSTEM=/etc/gitconfig"
-        "NIX_REMOTE=daemon"
-        "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-        "NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-      ];
-      WorkingDir = "/workspace";
-    };
-  };
+  hermesNixSandboxLinkCommands = builtins.concatStringsSep "\n" (map (package: ''
+    if [ -d ${package}/bin ]; then
+      for program in ${package}/bin/*; do
+      # Route package paths through an image-local alias. This prevents Nix's
+      # reference scanner from treating them as image dependencies, while the
+      # alias itself resolves to the deliberately mounted host store at runtime.
+      target="/.nix-store/''${program#/nix/store/}"
+      ln -sfn "$target" "bin/$(basename "$program")"
+      done
+    fi
+  '') hermesNixSandboxPackages);
+
+  # Only a symlink tree is put into the OCI layer. Its target closures are
+  # retained by system.extraDependencies and reached via the read-only host
+  # /nix/store mount. Do not record the target paths as references of this
+  # output: dockerTools otherwise follows those references and copies every
+  # package closure into the image.
+  hermesNixSandboxRoot = pkgs.runCommand "hermes-nix-sandbox-root" {
+    __structuredAttrs = true;
+    unsafeDiscardReferences.out = true;
+  } ''
+    mkdir -p "$out/bin" "$out/etc" "$out/workspace"
+    cd "$out"
+    ln -s /nix/store "$out/.nix-store"
+    ${hermesNixSandboxLinkCommands}
+    gitconfig_target="${hermesNixSandboxEtc}"
+    ln -s "/.nix-store/''${gitconfig_target#/nix/store/}/etc/gitconfig" "$out/etc/gitconfig"
+  '';
+  hermesNixSandboxEnv = [
+    # Hermes' Docker backend supplies /root as an ephemeral tmpfs. Unlike
+    # /home/hermes, it therefore exists on every newly created container.
+    "HOME=/root"
+    "PATH=/bin"
+    "GIT_CONFIG_SYSTEM=/etc/gitconfig"
+    "NIX_REMOTE=daemon"
+    "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+    "NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+  ];
+  # dockerTools.buildImage deliberately adds the whole Nix closure of a layer
+  # to a docker archive. That is unsuitable here: the runtime already bind
+  # mounts /nix/store. Emit the small Docker-archive format directly, preserving
+  # only the symlink tree and not serialising any package closure.
+  hermesNixSandboxImage = pkgs.runCommand "hermes-nix-sandbox.tar.gz" {
+    __structuredAttrs = true;
+    unsafeDiscardReferences.out = true;
+    nativeBuildInputs = [ pkgs.coreutils pkgs.gnutar pkgs.gzip ];
+  } ''
+    mkdir -p archive/layer
+    tar -C ${hermesNixSandboxRoot} \
+      --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+      -cf archive/layer/layer.tar .
+    diff_id="$(sha256sum archive/layer/layer.tar | cut -d ' ' -f 1)"
+    cat > archive/config.json <<EOF
+    {"architecture":"amd64","config":{"Env":${builtins.toJSON hermesNixSandboxEnv},"WorkingDir":"/workspace"},"created":"1970-01-01T00:00:01Z","os":"linux","rootfs":{"diff_ids":["sha256:$diff_id"],"type":"layers"}}
+    EOF
+    cat > archive/manifest.json <<'EOF'
+    [{"Config":"config.json","RepoTags":["hermes-nix-sandbox:latest"],"Layers":["layer/layer.tar"]}]
+    EOF
+    tar -C archive --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+      -cf - . | gzip -n > "$out"
+  '';
 
   # Podman uses a per-user image store in rootless mode.  Load the declarative
   # image into Hermes' store before the service starts, without requiring a
