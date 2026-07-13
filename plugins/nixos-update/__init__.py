@@ -140,7 +140,7 @@ def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
         detail = response.decode("utf-8", errors="replace").strip()
         raise RuntimeError(detail or "update broker returned an invalid response") from None
 
-    logs = log_bytes.decode("utf-8", errors="replace").strip()
+    logs = log_bytes.decode("utf-8", errors="replace").rstrip("\n")
     return logs, truncated_value == "1", line_count
 
 
