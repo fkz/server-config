@@ -49,7 +49,11 @@ def test_update_logs_handler_returns_bounded_fixed_unit_logs(monkeypatch: pytest
     monkeypatch.setattr(
         plugin,
         "_fetch_update_logs_via_broker",
-        lambda: "Jul 13 20:00:00 host systemd[1]: Started nixos-update.service",
+        lambda: (
+            "Jul 13 20:00:00 host systemd[1]: Started nixos-update.service",
+            False,
+            1,
+        ),
     )
 
     result = json.loads(plugin._handle_nixos_update_logs({}))
@@ -57,7 +61,9 @@ def test_update_logs_handler_returns_bounded_fixed_unit_logs(monkeypatch: pytest
     assert result == {
         "success": True,
         "unit": "nixos-update.service",
-        "lines": 200,
+        "requested_lines": 200,
+        "returned_lines": 1,
+        "truncated": False,
         "logs": "Jul 13 20:00:00 host systemd[1]: Started nixos-update.service",
     }
 
@@ -111,4 +117,54 @@ def test_root_broker_uses_only_a_fixed_bounded_journal_query() -> None:
     ):
         assert fixed_argument in nix
     assert 'if request == b"logs\\n":' in nix
-    assert 'connection.sendall(b"ok\\n" + log_bytes[:60_000])' in nix
+    logs_branch = nix.split('if request == b"logs\\n":', 1)[1].split(
+        'if request != b"start\\n":', 1
+    )[0]
+    assert "bounded_process_tail(" in logs_branch
+    assert "capture_output=True" not in logs_branch
+    assert "subprocess.Popen(" in nix
+    assert "selectors.DefaultSelector()" in nix
+    assert "tail = tail[-max_bytes:]" in nix
+    assert 'f"ok truncated={int(truncated)} "' in logs_branch
+    assert 'f"lines={line_count}\\n"' in logs_branch
+    assert "connection.settimeout(5)" in nix
+    assert 'MemoryMax = "128M";' in nix
+
+
+def test_log_client_parses_explicit_truncation_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = load_plugin()
+
+    class FakeSocket:
+        def __init__(self, *_args: object) -> None:
+            self.chunks = [b"ok truncated=1 lines=2\nolder\n", b"newest\n", b""]
+
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def settimeout(self, timeout: int) -> None:
+            assert timeout == 45
+
+        def connect(self, path: str) -> None:
+            assert path == "/run/hermes-nixos-update-broker/socket"
+
+        def sendall(self, request: bytes) -> None:
+            assert request == b"logs\n"
+
+        def shutdown(self, _direction: int) -> None:
+            return None
+
+        def recv(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    monkeypatch.setattr(plugin.socket, "socket", FakeSocket)
+
+    assert plugin._fetch_update_logs_via_broker() == (
+        "older\nnewest",
+        True,
+        2,
+    )
