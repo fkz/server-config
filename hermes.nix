@@ -36,10 +36,12 @@ let
   nixosUpdateBroker = pkgs.writers.writePython3Bin "hermes-nixos-update-broker" { } ''
     import os
     import pwd
+    import selectors
     import socket
     import struct
     import subprocess
     import sys
+    import time
 
     if int(os.environ.get("LISTEN_FDS", "0")) != 1:
         raise SystemExit("expected exactly one systemd socket")
@@ -80,9 +82,84 @@ let
         return request
 
 
+    def bounded_process_tail(command, *, timeout, max_bytes):
+        """Run a fixed command while retaining only its newest bounded output."""
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if process.stdout is None:
+            process.kill()
+            process.wait()
+            raise RuntimeError("could not capture journal output")
+
+        descriptor = process.stdout.fileno()
+        os.set_blocking(descriptor, False)
+        selector = selectors.DefaultSelector()
+        selector.register(descriptor, selectors.EVENT_READ)
+        deadline = time.monotonic() + timeout
+        tail = bytearray()
+        total_bytes = 0
+        eof = False
+
+        try:
+            while not eof:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                for key, _events in selector.select(min(0.5, remaining)):
+                    try:
+                        chunk = os.read(key.fd, 8_192)
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        selector.unregister(key.fd)
+                        eof = True
+                        break
+                    total_bytes += len(chunk)
+                    tail.extend(chunk)
+                    if len(tail) > max_bytes:
+                        tail = tail[-max_bytes:]
+            process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        except (Exception, KeyboardInterrupt):
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            selector.close()
+            process.stdout.close()
+
+        truncated = total_bytes > max_bytes
+        if truncated:
+            # Prefer a complete-line boundary while retaining the newest output.
+            newline = tail.find(b"\n")
+            if newline >= 0:
+                del tail[: newline + 1]
+            else:
+                # A single journal entry can itself exceed the cap. Keep its
+                # newest bytes, but never begin inside a UTF-8 continuation.
+                while tail and tail[0] & 0xC0 == 0x80:
+                    del tail[0]
+
+        if not tail:
+            marker = (
+                b"-- Output truncated; newest journal entry exceeds "
+                b"byte limit --\n"
+                if truncated
+                else b"-- No entries --\n"
+            )
+            tail = bytearray(marker)
+        line_count = len(tail.decode("utf-8", errors="replace").splitlines())
+        return process.returncode, bytes(tail), truncated, line_count
+
+
     while True:
         connection, _ = listener.accept()
         with connection:
+            # An authorized but incomplete request must not monopolize this
+            # single-purpose broker indefinitely.
+            connection.settimeout(5)
             try:
                 credentials = connection.getsockopt(
                     socket.SOL_SOCKET,
@@ -104,28 +181,36 @@ let
                 request = receive_request(connection)
                 if request == b"logs\n":
                     try:
-                        result = subprocess.run(
-                            [
-                                journalctl,
-                                "--unit=nixos-update.service",
-                                "--lines=200",
-                                "--no-pager",
-                                "--output=short-iso",
-                            ],
-                            check=False,
-                            capture_output=True,
-                            timeout=15,
+                        returncode, log_bytes, truncated, line_count = (
+                            bounded_process_tail(
+                                [
+                                    journalctl,
+                                    "--unit=nixos-update.service",
+                                    "--lines=200",
+                                    "--no-pager",
+                                    "--output=short-iso",
+                                ],
+                                timeout=15,
+                                max_bytes=60_000,
+                            )
                         )
-                    except (OSError, subprocess.TimeoutExpired) as error:
+                    except (
+                        OSError,
+                        RuntimeError,
+                        subprocess.TimeoutExpired,
+                    ) as error:
                         connection.sendall(f"error: {error}\n".encode())
                         continue
-                    if result.returncode == 0:
-                        log_bytes = result.stdout or b"-- No entries --\n"
-                        connection.sendall(b"ok\n" + log_bytes[:60_000])
+                    if returncode == 0:
+                        header = (
+                            f"ok truncated={int(truncated)} "
+                            f"lines={line_count}\n"
+                        )
+                        connection.sendall(header.encode("ascii") + log_bytes)
                     else:
-                        detail = (
-                            result.stderr or result.stdout or b"journalctl failed"
-                        ).decode("utf-8", errors="replace").strip()
+                        detail = log_bytes.decode(
+                            "utf-8", errors="replace"
+                        ).strip()
                         connection.sendall(f"error: {detail[:1000]}\n".encode())
                     continue
 
@@ -549,6 +634,7 @@ in
       ExecStart = "${nixosUpdateBroker}/bin/hermes-nixos-update-broker";
       Restart = "on-failure";
       RestartSec = 2;
+      MemoryMax = "128M";
       NoNewPrivileges = true;
       PrivateTmp = true;
       ProtectHome = true;

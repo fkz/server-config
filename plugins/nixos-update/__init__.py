@@ -1,9 +1,9 @@
 """Scoped tools for starting the NixOS update and reading its logs.
 
-Every update invocation performs a synchronous, non-persisted human consent
+Every tool invocation performs a synchronous, non-persisted human consent
 request. Session, permanent, and YOLO command-approval settings are deliberately
 not consulted. Only after consent does the handler ask the root-owned broker to
-queue the fixed update unit.
+queue the fixed update unit or return its bounded journal excerpt.
 
 Log retrieval is read-only, parameterless, and bounded to the latest 200 journal
 lines. The broker socket is not mounted into the terminal container and accepts
@@ -92,7 +92,7 @@ def _request_update_logs_consent() -> str:
 def _queue_update_via_broker() -> None:
     """Ask the fixed host broker to queue the update; never execute a command."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(20)
+        client.settimeout(45)
         client.connect(_BROKER_SOCKET)
         client.sendall(b"start\n")
         client.shutdown(socket.SHUT_WR)
@@ -102,11 +102,14 @@ def _queue_update_via_broker() -> None:
         raise RuntimeError(response or "update broker returned an empty response")
 
 
-def _fetch_update_logs_via_broker() -> str:
-    """Fetch a bounded journal excerpt for the fixed update unit."""
+def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
+    """Fetch a bounded journal excerpt and explicit truncation metadata."""
     response = bytearray()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(20)
+        # The broker can spend up to 10 seconds authenticating both managed
+        # service PIDs and 15 seconds collecting logs. Leave bounded headroom for
+        # local socket setup and delivery without racing the server deadline.
+        client.settimeout(45)
         client.connect(_BROKER_SOCKET)
         client.sendall(b"logs\n")
         client.shutdown(socket.SHUT_WR)
@@ -116,11 +119,29 @@ def _fetch_update_logs_via_broker() -> str:
                 break
             response.extend(chunk)
 
-    prefix = b"ok\n"
-    if not response.startswith(prefix):
+    header_bytes, separator, log_bytes = bytes(response).partition(b"\n")
+    if not separator:
         detail = response.decode("utf-8", errors="replace").strip()
         raise RuntimeError(detail or "update broker returned an empty response")
-    return bytes(response[len(prefix) :]).decode("utf-8", errors="replace").strip()
+
+    try:
+        header = header_bytes.decode("ascii")
+        status, truncated_field, lines_field = header.split()
+        if status != "ok":
+            raise ValueError
+        truncated_value = truncated_field.removeprefix("truncated=")
+        lines_value = lines_field.removeprefix("lines=")
+        if truncated_value not in {"0", "1"}:
+            raise ValueError
+        line_count = int(lines_value)
+        if line_count < 0:
+            raise ValueError
+    except (UnicodeDecodeError, ValueError):
+        detail = response.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "update broker returned an invalid response") from None
+
+    logs = log_bytes.decode("utf-8", errors="replace").strip()
+    return logs, truncated_value == "1", line_count
 
 
 def _handle_nixos_update(params: dict[str, Any], **kwargs: Any) -> str:
@@ -182,7 +203,7 @@ def _handle_nixos_update_logs(params: dict[str, Any], **kwargs: Any) -> str:
         )
 
     try:
-        logs = _fetch_update_logs_via_broker()
+        logs, truncated, returned_lines = _fetch_update_logs_via_broker()
     except (OSError, RuntimeError) as exc:
         return json.dumps({"success": False, "error": f"could not fetch update logs: {exc}"})
 
@@ -190,7 +211,9 @@ def _handle_nixos_update_logs(params: dict[str, Any], **kwargs: Any) -> str:
         {
             "success": True,
             "unit": _UNIT,
-            "lines": _LOG_LINES,
+            "requested_lines": _LOG_LINES,
+            "returned_lines": returned_lines,
+            "truncated": truncated,
             "logs": logs,
         }
     )
