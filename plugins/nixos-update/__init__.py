@@ -1,12 +1,13 @@
-"""Always-confirmed tool for starting the root-owned NixOS update service.
+"""Scoped tools for starting the NixOS update and reading its logs.
 
-Every handler invocation performs a synchronous, non-persisted human consent
+Every update invocation performs a synchronous, non-persisted human consent
 request. Session, permanent, and YOLO command-approval settings are deliberately
 not consulted. Only after consent does the handler ask the root-owned broker to
 queue the fixed update unit.
 
-The broker socket is not mounted into the terminal container and accepts only
-the live main PID of the managed Hermes gateway/dashboard services.
+Log retrieval is read-only, parameterless, and bounded to the latest 200 journal
+lines. The broker socket is not mounted into the terminal container and accepts
+only the live main PID of the managed Hermes gateway/dashboard services.
 """
 
 from __future__ import annotations
@@ -16,12 +17,20 @@ import socket
 from typing import Any
 
 _TOOL_NAME = "nixos_update"
+_LOGS_TOOL_NAME = "nixos_update_logs"
 _UNIT = "nixos-update.service"
 _BROKER_SOCKET = "/run/hermes-nixos-update-broker/socket"
+_LOG_LINES = 200
+_MAX_LOG_BYTES = 65_536
 _APPROVAL_MESSAGE = "Start the root-owned nixos-update.service"
 _APPROVAL_DESCRIPTION = (
     "The service fetches and deploys the latest server configuration and may "
     "restart Hermes. This confirmation applies only to this invocation."
+)
+_LOGS_APPROVAL_MESSAGE = "Read the latest nixos-update.service journal entries"
+_LOGS_APPROVAL_DESCRIPTION = (
+    "Return at most the latest 200 lines (and 60,000 bytes) from only the fixed "
+    "NixOS update service. This confirmation applies only to this invocation."
 )
 
 _SCHEMA = {
@@ -30,6 +39,20 @@ _SCHEMA = {
         "Always request a fresh user confirmation, then queue the root-owned "
         "NixOS update service. The service may restart Hermes. This tool accepts "
         "no arguments and confirmations are never reused."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+}
+
+_LOGS_SCHEMA = {
+    "name": _LOGS_TOOL_NAME,
+    "description": (
+        "Always request a fresh user confirmation, then fetch the latest 200 "
+        "journal lines for the fixed nixos-update.service. The output is bounded, "
+        "this tool accepts no arguments, and confirmations are never reused."
     ),
     "parameters": {
         "type": "object",
@@ -54,6 +77,18 @@ def _request_individual_consent() -> str:
     )
 
 
+def _request_update_logs_consent() -> str:
+    """Request non-persisted consent before exposing the update journal."""
+    from tools.approval import request_elicitation_consent
+
+    return request_elicitation_consent(
+        _LOGS_APPROVAL_MESSAGE,
+        _LOGS_APPROVAL_DESCRIPTION,
+        timeout_seconds=120,
+        surface="nixos-update-logs",
+    )
+
+
 def _queue_update_via_broker() -> None:
     """Ask the fixed host broker to queue the update; never execute a command."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -65,6 +100,27 @@ def _queue_update_via_broker() -> None:
 
     if response != "ok":
         raise RuntimeError(response or "update broker returned an empty response")
+
+
+def _fetch_update_logs_via_broker() -> str:
+    """Fetch a bounded journal excerpt for the fixed update unit."""
+    response = bytearray()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(20)
+        client.connect(_BROKER_SOCKET)
+        client.sendall(b"logs\n")
+        client.shutdown(socket.SHUT_WR)
+        while len(response) < _MAX_LOG_BYTES:
+            chunk = client.recv(min(8_192, _MAX_LOG_BYTES - len(response)))
+            if not chunk:
+                break
+            response.extend(chunk)
+
+    prefix = b"ok\n"
+    if not response.startswith(prefix):
+        detail = response.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "update broker returned an empty response")
+    return bytes(response[len(prefix) :]).decode("utf-8", errors="replace").strip()
 
 
 def _handle_nixos_update(params: dict[str, Any], **kwargs: Any) -> str:
@@ -105,6 +161,41 @@ def _handle_nixos_update(params: dict[str, Any], **kwargs: Any) -> str:
     )
 
 
+def _handle_nixos_update_logs(params: dict[str, Any], **kwargs: Any) -> str:
+    """Confirm this invocation, then return the fixed unit's bounded journal."""
+    del kwargs
+    if params:
+        return json.dumps({"success": False, "error": "this tool accepts no parameters"})
+
+    try:
+        consent = _request_update_logs_consent()
+    except Exception as exc:
+        return json.dumps({"success": False, "error": f"approval failed closed: {exc}"})
+
+    if consent != "accept":
+        return json.dumps(
+            {
+                "success": False,
+                "status": "denied" if consent == "decline" else "cancelled",
+                "error": "the user did not approve this NixOS update log request",
+            }
+        )
+
+    try:
+        logs = _fetch_update_logs_via_broker()
+    except (OSError, RuntimeError) as exc:
+        return json.dumps({"success": False, "error": f"could not fetch update logs: {exc}"})
+
+    return json.dumps(
+        {
+            "success": True,
+            "unit": _UNIT,
+            "lines": _LOG_LINES,
+            "logs": logs,
+        }
+    )
+
+
 def register(ctx: Any) -> None:
     ctx.register_tool(
         name=_TOOL_NAME,
@@ -113,4 +204,12 @@ def register(ctx: Any) -> None:
         handler=_handle_nixos_update,
         description=_SCHEMA["description"],
         emoji="❄️",
+    )
+    ctx.register_tool(
+        name=_LOGS_TOOL_NAME,
+        toolset="nixos_update",
+        schema=_LOGS_SCHEMA,
+        handler=_handle_nixos_update_logs,
+        description=_LOGS_SCHEMA["description"],
+        emoji="📜",
     )
