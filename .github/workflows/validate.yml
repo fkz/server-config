@@ -1,0 +1,41 @@
+name: Validate NixOS configuration
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nixos-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Tests and system build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check changed files for whitespace errors
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+
+      - name: Run plugin tests
+        run: nix shell --inputs-from . nixpkgs#python3Packages.pytest -c pytest -q
+
+      - name: Evaluate flake checks
+        run: nix flake check --no-build
+
+      - name: Build complete NixOS system
+        run: nix build .#nixosConfigurations.nixos.config.system.build.toplevel --no-link
