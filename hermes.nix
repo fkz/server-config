@@ -1,5 +1,44 @@
 { config, pkgs, ... }:
 
+let
+  # dockerTools builds an OCI image directly from the Nix store (equivalent to
+  # `FROM scratch`).  The package closures are intentionally available under
+  # their immutable /nix/store paths; Hermes overlays that directory with the
+  # host store, where these exact paths are retained by this system closure.
+  hermesNixSandboxPackages = [ pkgs.bash pkgs.coreutils pkgs.nix ];
+  # A small /bin symlink tree is the only executable surface supplied by the
+  # image.  Its targets are immutable store paths, resolved after /nix/store is
+  # mounted read-only from the host.
+  hermesNixSandboxRoot = pkgs.buildEnv {
+    name = "hermes-nix-sandbox-root";
+    paths = hermesNixSandboxPackages;
+    pathsToLink = [ "/bin" ];
+  };
+  hermesNixSandboxImage = pkgs.dockerTools.buildLayeredImage {
+    name = "hermes-nix-sandbox";
+    tag = "latest";
+    contents = [ hermesNixSandboxRoot ];
+    config = {
+      Env = [
+        "HOME=/home/hermes"
+        "PATH=/bin"
+        "NIX_REMOTE=daemon"
+      ];
+      WorkingDir = "/workspace";
+    };
+  };
+
+  # Podman uses a per-user image store in rootless mode.  Load the declarative
+  # image into Hermes' store before the service starts, without requiring a
+  # privileged Podman API/socket.
+  loadHermesNixSandboxImage = pkgs.writeShellScript "load-hermes-nix-sandbox-image" ''
+    set -eu
+    image=hermes-nix-sandbox:latest
+    if ! ${pkgs.podman}/bin/podman image exists "$image"; then
+      ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
+    fi
+  '';
+in
 {
   # Hermes runs as a dedicated, unprivileged system user and persists its
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
@@ -45,8 +84,26 @@
       };
 
       terminal = {
-        backend = "local";
+        # The Docker backend also supports Podman: Hermes probes `docker` and
+        # then `podman`.  Rootless Podman is the actual OCI runtime here.
+        backend = "docker";
         timeout = 180;
+        docker_image = "hermes-nix-sandbox:latest";
+        docker_auto_mount_cwd = false;
+        docker_network = false;
+        docker_persistent_filesystem = false;
+        docker_run_as_host_user = true;
+        docker_volumes = [
+          # The Nix client and all of its dynamic-library closures are read
+          # from the host store.  This must stay read-only.
+          "/nix/store:/nix/store:ro"
+          "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
+          "/etc/nix:/etc/nix:ro"
+
+          # Deliberate capability grant: permits `nix build`/`nix run` through
+          # the host daemon without granting Hermes' home or secret files.
+          "/nix/var/nix/daemon-socket:/nix/var/nix/daemon-socket:rw"
+        ];
       };
 
       # Use the more accurate local Whisper model for multilingual voice
@@ -75,6 +132,50 @@
   };
 
   systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
+
+  # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
+  # store targets of its /bin symlinks even if no other system path needs one.
+  system.extraDependencies = hermesNixSandboxPackages;
+
+  virtualisation.podman.enable = true;
+
+  # Rootless container namespaces require a subordinate-ID range.  The Hermes
+  # account remains unprivileged on the host and is deliberately not added to
+  # the rootful `podman` group.
+  users.users.hermes = {
+    subUidRanges = [{ startUid = 100000; count = 65536; }];
+    subGidRanges = [{ startGid = 100000; count = 65536; }];
+  };
+
+  systemd.services.hermes-nix-sandbox-image = {
+    description = "Load the rootless Podman image for Hermes Nix sandboxing";
+    before = [ "hermes-agent.service" "hermes-serve.service" ];
+    requiredBy = [ "hermes-agent.service" "hermes-serve.service" ];
+    after = [ "nix-daemon.service" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      User = "hermes";
+      Group = "hermes";
+      RemainAfterExit = true;
+      RuntimeDirectory = "hermes-podman";
+      RuntimeDirectoryMode = "0700";
+    };
+
+    environment = {
+      HOME = "/var/lib/hermes";
+      XDG_RUNTIME_DIR = "/run/hermes-podman";
+    };
+
+    path = [ pkgs.podman ];
+    script = ''
+      exec ${loadHermesNixSandboxImage}
+    '';
+  };
+
+  # Hermes resolves `podman` from PATH when the Docker terminal backend is
+  # selected. This adds no rootful Podman socket capability.
+  systemd.services.hermes-agent.path = [ pkgs.podman ];
 
   # Restrict the remote desktop backend to the tailnet. The NixOS firewall
   # still blocks port 9119 on the public network interfaces.
@@ -137,6 +238,7 @@
       pkgs.bash
       pkgs.coreutils
       pkgs.git
+      pkgs.podman
     ];
   };
 }
