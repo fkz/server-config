@@ -127,7 +127,11 @@ def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
     try:
         header = header_bytes.decode("ascii")
         status, truncated_field, lines_field = header.split()
-        if status != "ok":
+        if (
+            status != "ok"
+            or not truncated_field.startswith("truncated=")
+            or not lines_field.startswith("lines=")
+        ):
             raise ValueError
         truncated_value = truncated_field.removeprefix("truncated=")
         lines_value = lines_field.removeprefix("lines=")
@@ -140,7 +144,7 @@ def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
         detail = response.decode("utf-8", errors="replace").strip()
         raise RuntimeError(detail or "update broker returned an invalid response") from None
 
-    logs = log_bytes.decode("utf-8", errors="replace").rstrip("\n")
+    logs = log_bytes.decode("utf-8", errors="replace")
     return logs, truncated_value == "1", line_count
 
 

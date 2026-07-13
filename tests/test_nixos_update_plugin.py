@@ -123,6 +123,8 @@ def test_root_broker_uses_only_a_fixed_bounded_journal_query() -> None:
     assert "bounded_process_tail(" in logs_branch
     assert "capture_output=True" not in logs_branch
     assert "subprocess.Popen(" in nix
+    assert "selector = None" in nix
+    assert "except BaseException:" in nix
     assert "selectors.DefaultSelector()" in nix
     assert "tail = tail[-max_bytes:]" in nix
     assert 'f"ok truncated={int(truncated)} "' in logs_branch
@@ -164,7 +166,45 @@ def test_log_client_parses_explicit_truncation_metadata(
     monkeypatch.setattr(plugin.socket, "socket", FakeSocket)
 
     assert plugin._fetch_update_logs_via_broker() == (
-        "older\nnewest",
+        "older\nnewest\n",
         True,
         2,
     )
+
+
+def test_log_client_rejects_metadata_without_required_prefixes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = load_plugin()
+
+    class FakeSocket:
+        chunks = [b"ok 1 2\nmalformed\n", b""]
+
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def settimeout(self, _timeout: int) -> None:
+            return None
+
+        def connect(self, _path: str) -> None:
+            return None
+
+        def sendall(self, _request: bytes) -> None:
+            return None
+
+        def shutdown(self, _direction: int) -> None:
+            return None
+
+        def recv(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    monkeypatch.setattr(plugin.socket, "socket", FakeSocket)
+
+    with pytest.raises(RuntimeError):
+        plugin._fetch_update_logs_via_broker()
