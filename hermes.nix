@@ -89,21 +89,21 @@ let
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        if process.stdout is None:
-            process.kill()
-            process.wait()
-            raise RuntimeError("could not capture journal output")
-
-        descriptor = process.stdout.fileno()
-        os.set_blocking(descriptor, False)
-        selector = selectors.DefaultSelector()
-        selector.register(descriptor, selectors.EVENT_READ)
-        deadline = time.monotonic() + timeout
-        tail = bytearray()
-        total_bytes = 0
-        eof = False
-
+        stdout = process.stdout
+        selector = None
         try:
+            if stdout is None:
+                raise RuntimeError("could not capture journal output")
+
+            descriptor = stdout.fileno()
+            os.set_blocking(descriptor, False)
+            selector = selectors.DefaultSelector()
+            selector.register(descriptor, selectors.EVENT_READ)
+            deadline = time.monotonic() + timeout
+            tail = bytearray()
+            total_bytes = 0
+            eof = False
+
             while not eof:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -122,13 +122,16 @@ let
                     if len(tail) > max_bytes:
                         tail = tail[-max_bytes:]
             process.wait(timeout=max(0.1, deadline - time.monotonic()))
-        except (Exception, KeyboardInterrupt):
-            process.kill()
+        except BaseException:
+            if process.poll() is None:
+                process.kill()
             process.wait()
             raise
         finally:
-            selector.close()
-            process.stdout.close()
+            if selector is not None:
+                selector.close()
+            if stdout is not None:
+                stdout.close()
 
         truncated = total_bytes > max_bytes
         if truncated:
