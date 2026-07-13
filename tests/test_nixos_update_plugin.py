@@ -172,16 +172,25 @@ def test_log_client_parses_explicit_truncation_metadata(
     )
 
 
-def test_log_client_rejects_metadata_without_required_prefixes(
+@pytest.mark.parametrize(
+    "response",
+    [
+        b"ok 1 2\nmalformed\n",
+        b"ok truncated=0 lines=1_0\nx\n",
+        b"ok truncated=0 lines=+1\nx\n",
+        b"ok truncated=0 lines=0\nx\n",
+        b"ok truncated=0 lines=2\nx\n",
+    ],
+)
+def test_log_client_rejects_malformed_or_mismatched_metadata(
     monkeypatch: pytest.MonkeyPatch,
+    response: bytes,
 ) -> None:
     plugin = load_plugin()
 
     class FakeSocket:
-        chunks = [b"ok 1 2\nmalformed\n", b""]
-
         def __init__(self, *_args: object) -> None:
-            pass
+            self.chunks = [response, b""]
 
         def __enter__(self) -> "FakeSocket":
             return self
