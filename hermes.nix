@@ -5,7 +5,86 @@ let
   # `FROM scratch`).  The package closures are intentionally available under
   # their immutable /nix/store paths; Hermes overlays that directory with the
   # host store, where these exact paths are retained by this system closure.
-  hermesNixSandboxPackages = [ pkgs.bash pkgs.coreutils pkgs.nix ];
+  githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
+
+  # The GitHub App private key remains on the host. The sandbox gets only these
+  # clients, which ask the host-side broker for a short-lived installation token
+  # over a Unix socket.
+  githubAppGitCredential = pkgs.writeShellScriptBin "github-app-git-credential" ''
+    set -eu
+    case "''${1:-get}" in
+      get) ;;
+      *) exit 0 ;;
+    esac
+    cat >/dev/null
+    printf 'get\n' | ${pkgs.socat}/bin/socat - UNIX-CONNECT:${githubCredentialSocket}
+  '';
+  githubAppGh = pkgs.writeShellScriptBin "github-app-gh" ''
+    set -eu
+    response=$(printf 'get\n' | ${pkgs.socat}/bin/socat - UNIX-CONNECT:${githubCredentialSocket})
+    token=
+    while IFS= read -r line; do
+      case "$line" in
+        password=*) token="''${line#password=}" ;;
+      esac
+    done <<EOF
+    $response
+    EOF
+    test -n "$token"
+    GH_TOKEN="$token" exec ${pkgs.gh}/bin/gh "$@"
+  '';
+  githubAppCredentialBroker = pkgs.writers.writePython3Bin "hermes-github-credential-broker" { } ''
+    import os
+    import socket
+    import subprocess
+    import sys
+
+    if int(os.environ.get("LISTEN_FDS", "0")) != 1:
+        raise SystemExit("expected exactly one systemd socket")
+
+    listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
+    while True:
+        connection, _ = listener.accept()
+        with connection:
+            request = connection.recv(16)
+            if request != b"get\n":
+                connection.sendall(b"error=unsupported request\n\n")
+                continue
+            try:
+                token = subprocess.run(
+                    ["/var/lib/hermes/.hermes/scripts/github-app-token"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                ).stdout.strip()
+                if not token:
+                    raise RuntimeError("empty installation token")
+                connection.sendall(
+                    f"username=x-access-token\npassword={token}\n\n".encode()
+                )
+            except Exception as error:
+                print(f"GitHub credential broker: {error}", file=sys.stderr)
+                connection.sendall(b"error=credential unavailable\n\n")
+  '';
+
+  hermesNixSandboxPackages = [
+    pkgs.bash
+    pkgs.coreutils
+    pkgs.git
+    pkgs.gh
+    pkgs.nix
+    pkgs.socat
+    githubAppGitCredential
+    githubAppGh
+  ];
+  hermesNixSandboxEtc = pkgs.runCommand "hermes-nix-sandbox-etc" { } ''
+    mkdir -p "$out/etc"
+    cat > "$out/etc/gitconfig" <<'EOF'
+    [credential "https://github.com"]
+      helper = /bin/github-app-git-credential
+    EOF
+  '';
   # A small /bin symlink tree is the only executable surface supplied by the
   # image.  Its targets are immutable store paths, resolved after /nix/store is
   # mounted read-only from the host.
@@ -17,11 +96,12 @@ let
   hermesNixSandboxImage = pkgs.dockerTools.buildLayeredImage {
     name = "hermes-nix-sandbox";
     tag = "latest";
-    contents = [ hermesNixSandboxRoot ];
+    contents = [ hermesNixSandboxRoot hermesNixSandboxEtc ];
     config = {
       Env = [
         "HOME=/home/hermes"
         "PATH=/bin"
+        "GIT_CONFIG_SYSTEM=/etc/gitconfig"
         "NIX_REMOTE=daemon"
       ];
       WorkingDir = "/workspace";
@@ -90,9 +170,13 @@ in
         timeout = 180;
         docker_image = "hermes-nix-sandbox:latest";
         docker_auto_mount_cwd = false;
-        docker_network = false;
+        # Direct HTTPS is needed for git clone/push and GitHub CLI requests.
+        # Authentication is still brokered through a local Unix socket below.
+        docker_network = true;
         docker_persistent_filesystem = false;
-        docker_run_as_host_user = true;
+        # Container root maps to the unprivileged host `hermes` user under
+        # rootless Podman, so it can access the 0600 broker socket without
+        # granting host-root privileges.
         docker_volumes = [
           # The Nix client and all of its dynamic-library closures are read
           # from the host store.  This must stay read-only.
@@ -103,6 +187,10 @@ in
           # Deliberate capability grant: permits `nix build`/`nix run` through
           # the host daemon without granting Hermes' home or secret files.
           "/nix/var/nix/daemon-socket:/nix/var/nix/daemon-socket:rw"
+
+          # The broker gives the container a short-lived installation token on
+          # demand. The GitHub App private key and Hermes secrets stay host-only.
+          "${githubCredentialSocket}:${githubCredentialSocket}:rw"
         ];
       };
 
@@ -136,6 +224,36 @@ in
   # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
   # store targets of its /bin symlinks even if no other system path needs one.
   system.extraDependencies = hermesNixSandboxPackages;
+
+  # The socket is owned by `hermes` (0600). In a rootless Podman container,
+  # container UID 0 maps to that unprivileged host user, not to host root.
+  systemd.sockets.hermes-github-credential-broker = {
+    description = "GitHub App credential socket for the Hermes sandbox";
+    before = [ "hermes-agent.service" "hermes-serve.service" ];
+    requiredBy = [ "hermes-agent.service" "hermes-serve.service" ];
+    wantedBy = [ "sockets.target" ];
+    listenStreams = [ githubCredentialSocket ];
+    socketConfig = {
+      SocketMode = "0600";
+      SocketUser = "hermes";
+      SocketGroup = "hermes";
+    };
+  };
+
+  systemd.services.hermes-github-credential-broker = {
+    description = "Mint short-lived GitHub App tokens for the Hermes sandbox";
+    requires = [ "hermes-github-credential-broker.socket" ];
+    after = [ "hermes-github-credential-broker.socket" "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      User = "hermes";
+      Group = "hermes";
+      ExecStart = "${githubAppCredentialBroker}/bin/hermes-github-credential-broker";
+      Restart = "on-failure";
+      RestartSec = 2;
+    };
+    environment.HOME = "/var/lib/hermes";
+  };
 
   virtualisation.podman.enable = true;
 
