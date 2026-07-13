@@ -14,9 +14,9 @@ let
     ln -s ${config.security.wrapperDir}/newgidmap "$out/bin/newgidmap"
   '';
 
-  # Host-side plugin for the one privileged action that must stay outside the
-  # terminal sandbox. The handler itself forces fresh, non-persisted human
-  # consent before it can contact the fixed root-owned update broker.
+  # Host-side plugin for the privileged update action and bounded update journal
+  # access that must stay outside the terminal sandbox. Each handler forces
+  # fresh, non-persisted human consent before contacting the fixed root broker.
   nixosUpdatePlugin = pkgs.linkFarm "hermes-nixos-update-plugin" [
     {
       name = "plugin.yaml";
@@ -48,6 +48,7 @@ let
         "${pkgs.systemd}"
     )
     systemctl = os.path.join(systemd_package, "bin", "systemctl")
+    journalctl = os.path.join(systemd_package, "bin", "journalctl")
     hermes_uid = pwd.getpwnam("hermes").pw_uid
     listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
 
@@ -100,7 +101,35 @@ let
                         file=sys.stderr,
                     )
                     continue
-                if receive_request(connection) != b"start\n":
+                request = receive_request(connection)
+                if request == b"logs\n":
+                    try:
+                        result = subprocess.run(
+                            [
+                                journalctl,
+                                "--unit=nixos-update.service",
+                                "--lines=200",
+                                "--no-pager",
+                                "--output=short-iso",
+                            ],
+                            check=False,
+                            capture_output=True,
+                            timeout=15,
+                        )
+                    except (OSError, subprocess.TimeoutExpired) as error:
+                        connection.sendall(f"error: {error}\n".encode())
+                        continue
+                    if result.returncode == 0:
+                        log_bytes = result.stdout or b"-- No entries --\n"
+                        connection.sendall(b"ok\n" + log_bytes[:60_000])
+                    else:
+                        detail = (
+                            result.stderr or result.stdout or b"journalctl failed"
+                        ).decode("utf-8", errors="replace").strip()
+                        connection.sendall(f"error: {detail[:1000]}\n".encode())
+                    continue
+
+                if request != b"start\n":
                     connection.sendall(b"error: unsupported request\n")
                     continue
 
@@ -511,7 +540,7 @@ in
   };
 
   systemd.services.hermes-nixos-update-broker = {
-    description = "Queue the fixed root-owned NixOS update for Hermes";
+    description = "Broker the fixed NixOS update action and bounded logs for Hermes";
     requires = [ "hermes-nixos-update-broker.socket" ];
     after = [ "hermes-nixos-update-broker.socket" ];
     serviceConfig = {
