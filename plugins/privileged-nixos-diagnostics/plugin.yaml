@@ -1,0 +1,6 @@
+name: privileged-nixos-diagnostics
+version: "0.1.0"
+description: "Proof-of-concept: one Telegram-approved, root-owned NixOS update diagnostic."
+kind: standalone
+provides_tools:
+  - nixos_update_diagnostics

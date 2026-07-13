@@ -1,11 +1,30 @@
 { config, pkgs, ... }:
 
-{
+let
+  # A directory plugin packaged declaratively for the managed Hermes instance.
+  # The plugin only exposes one argument-free diagnostic action.
+  privilegedNixosDiagnosticsPlugin = pkgs.linkFarm "privileged-nixos-diagnostics" [
+    {
+      name = "plugin.yaml";
+      path = ./plugins/privileged-nixos-diagnostics/plugin.yaml;
+    }
+    {
+      name = "__init__.py";
+      path = ./plugins/privileged-nixos-diagnostics/__init__.py;
+    }
+  ];
+in {
   # Hermes runs as a dedicated, unprivileged system user and persists its
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
   services.hermes-agent = {
     enable = true;
     addToSystemPackages = true;
+    extraPlugins = [ privilegedNixosDiagnosticsPlugin ];
+
+    # General plugins are opt-in. This proof of concept exposes exactly one
+    # argument-free diagnostic tool; its own pre-tool hook forces a fresh
+    # gateway approval for every invocation.
+    settings.plugins.enabled = [ "privileged-nixos-diagnostics" ];
 
     # Runtime-only credentials for the messaging gateways. These files are read
     # by the NixOS activation script and merged into
@@ -64,6 +83,55 @@
     # The resulting auth.json stays in /var/lib/hermes/.hermes and is preserved
     # across NixOS rebuilds.
   };
+
+  # Root-owned producer for the proof-of-concept tool. The Hermes user cannot
+  # select a journal, service, command, or output path: this unit always reads
+  # only the last 200 nixos-update records and atomically publishes its report.
+  systemd.services.hermes-nixos-update-diagnostics = {
+    description = "Produce a bounded NixOS-update diagnostic report for Hermes";
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+      Group = "root";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      ReadWritePaths = [ "/run/hermes-privileged-diagnostics" ];
+    };
+    path = [ pkgs.coreutils pkgs.systemd ];
+    script = ''
+      set -euo pipefail
+      report_dir=/run/hermes-privileged-diagnostics
+      report=$report_dir/nixos-update-journal.txt
+      install -d -o root -g hermes -m 0750 "$report_dir"
+      tmp=$(mktemp "$report_dir/.nixos-update-journal.XXXXXX")
+      trap 'rm -f "$tmp"' EXIT
+
+      journalctl --no-pager --output=short-iso --lines=200 \
+        --unit=nixos-update.service > "$tmp"
+      chown root:hermes "$tmp"
+      chmod 0640 "$tmp"
+      mv -f "$tmp" "$report"
+      trap - EXIT
+    '';
+  };
+
+  # This is deliberately narrower than sudo: the unprivileged Hermes user can
+  # start only the one fixed report unit. Calling it outside the Hermes tool
+  # still cannot run arbitrary root commands or access another journal.
+  security.polkit.enable = true;
+  security.polkit.extraConfig = ''
+    polkit.addRule(function(action, subject) {
+      if (action.id == "org.freedesktop.systemd1.manage-units" &&
+          subject.user == "hermes" &&
+          action.lookup("verb") == "start" &&
+          action.lookup("unit") == "hermes-nixos-update-diagnostics.service") {
+        return polkit.Result.YES;
+      }
+    });
+  '';
 
   systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
 
