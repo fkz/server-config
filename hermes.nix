@@ -16,6 +16,44 @@ let
 
   githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
 
+  # The token minter is a Nix package, not a mutable helper in Hermes' state
+  # directory. It reads the private key and App ID only at runtime, so neither
+  # secret becomes part of the Nix store.
+  githubAppToken = pkgs.writeShellApplication {
+    name = "github-app-token";
+    runtimeInputs = [ pkgs.coreutils pkgs.curl pkgs.jq pkgs.openssl ];
+    text = ''
+      key=/var/lib/hermes/.hermes/secrets/github-app-private-key.pem
+      app_id=$(tr -d '[:space:]' < /var/lib/hermes/.hermes/secrets/github-app-id)
+
+      b64url() {
+        openssl base64 -A | tr '+/' '-_' | tr -d '='
+      }
+
+      now=$(date +%s)
+      header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
+      payload=$(printf '{"iat":%s,"exp":%s,"iss":"%s"}' \
+        "$((now - 60))" "$((now + 540))" "$app_id" | b64url)
+      unsigned="$header.$payload"
+      signature=$(printf '%s' "$unsigned" \
+        | openssl dgst -sha256 -sign "$key" -binary | b64url)
+      jwt="$unsigned.$signature"
+
+      installation_id=$(curl --fail --silent --show-error \
+        -H 'Accept: application/vnd.github+json' \
+        -H "Authorization: Bearer $jwt" \
+        https://api.github.com/app/installations \
+        | jq -r '.[] | select(.account.login == "fkz") | .id' | head -n 1)
+      test -n "$installation_id" && test "$installation_id" != null
+
+      curl --fail --silent --show-error -X POST \
+        -H 'Accept: application/vnd.github+json' \
+        -H "Authorization: Bearer $jwt" \
+        "https://api.github.com/app/installations/$installation_id/access_tokens" \
+        | jq -er .token
+    '';
+  };
+
   # The GitHub App private key remains on the host. The sandbox gets only these
   # clients, which ask the host-side broker for a short-lived installation token
   # over a Unix socket.
@@ -60,8 +98,12 @@ let
                 connection.sendall(b"error=unsupported request\n\n")
                 continue
             try:
+                token_command = (
+                    "${githubAppToken}"
+                    "/bin/github-app-token"
+                )
                 token = subprocess.run(
-                    ["/var/lib/hermes/.hermes/scripts/github-app-token"],
+                    [token_command],
                     check=True,
                     capture_output=True,
                     text=True,
