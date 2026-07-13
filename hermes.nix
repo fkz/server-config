@@ -119,13 +119,34 @@ let
                 connection.sendall(b"error=credential unavailable\n\n")
   '';
 
+  # Baseline required by Hermes' remote terminal, file, and code-execution
+  # tools. More project-specific dependencies can still be obtained with Nix.
   hermesNixSandboxPackages = [
     pkgs.bash
+    pkgs.cacert
     pkgs.coreutils
+    pkgs.curl
+    pkgs.diffutils
+    pkgs.file
+    pkgs.findutils
+    pkgs.gawk
     pkgs.git
     pkgs.gh
+    pkgs.gnugrep
+    pkgs.gnupatch
+    pkgs.gnused
+    pkgs.gnutar
+    pkgs.gzip
+    pkgs.iproute2
+    pkgs.jq
     pkgs.nix
+    pkgs.openssh
+    pkgs.procps
+    pkgs.python3
+    pkgs.ripgrep
     pkgs.socat
+    pkgs.util-linux
+    pkgs.xz
     githubAppGitCredential
     githubAppGh
   ];
@@ -150,10 +171,14 @@ let
     contents = [ hermesNixSandboxRoot hermesNixSandboxEtc ];
     config = {
       Env = [
-        "HOME=/home/hermes"
+        # Hermes' Docker backend supplies /root as an ephemeral tmpfs.  Unlike
+        # /home/hermes, it therefore exists on every newly created container.
+        "HOME=/root"
         "PATH=/bin"
         "GIT_CONFIG_SYSTEM=/etc/gitconfig"
         "NIX_REMOTE=daemon"
+        "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+        "NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
       ];
       WorkingDir = "/workspace";
     };
@@ -167,10 +192,10 @@ let
     # Rootless Podman needs the setuid NixOS wrappers (newuidmap/newgidmap),
     # not the unprivileged shadow binaries in the Nix store.
     export PATH="${config.security.wrapperDir}:$PATH"
-    image=hermes-nix-sandbox:latest
-    if ! ${pkgs.podman}/bin/podman image exists "$image"; then
-      ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
-    fi
+    # Reload on every activation: the fixed image tag is intentional for
+    # declarative configuration, and podman load replaces it with the Nix-built
+    # image from this generation.
+    ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
   '';
 in
 {
@@ -229,6 +254,9 @@ in
         # Authentication is still brokered through a local Unix socket below.
         docker_network = true;
         docker_persistent_filesystem = false;
+        # Recreate the execution container after an activation so a refreshed
+        # declarative image is actually used rather than a retained `latest`.
+        docker_persist_across_processes = false;
         # Container root maps to the unprivileged host `hermes` user under
         # rootless Podman, so it can access the 0600 broker socket without
         # granting host-root privileges.
