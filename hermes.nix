@@ -158,7 +158,8 @@ in
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
       model = {
-        default = "gpt-5.6-terra";
+        # GPT-5.6 Sol is the flagship Codex model tier (Sol > Terra > Luna).
+        default = "gpt-5.6-sol";
         provider = "openai-codex";
         base_url = "https://chatgpt.com/backend-api/codex";
       };
