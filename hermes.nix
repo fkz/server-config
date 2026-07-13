@@ -14,9 +14,9 @@ let
     ln -s ${config.security.wrapperDir}/newgidmap "$out/bin/newgidmap"
   '';
 
-  # Host-side plugin for the privileged update action and bounded update journal
+  # Host-side plugin for the privileged update action and bounded service journal
   # access that must stay outside the terminal sandbox. Each handler forces
-  # fresh, non-persisted human consent before contacting the fixed root broker.
+  # fresh, non-persisted human consent before contacting the root broker.
   nixosUpdatePlugin = pkgs.linkFarm "hermes-nixos-update-plugin" [
     {
       name = "plugin.yaml";
@@ -29,13 +29,15 @@ let
   ];
 
   nixosUpdateBrokerSocket = "/run/hermes-nixos-update-broker/socket";
-  # Root-owned broker for the one fixed host action. In addition to Unix-socket
-  # permissions, it verifies SO_PEERCRED against the current MainPID of the two
+  # Root-owned broker for one fixed host action and read-only, bounded journal
+  # access to validated service units. In addition to Unix-socket permissions,
+  # it verifies SO_PEERCRED against the current MainPID of the two
   # managed Hermes services. A separate process running as `hermes` therefore
   # cannot reuse this capability, and the socket is not mounted into Podman.
   nixosUpdateBroker = pkgs.writers.writePython3Bin "hermes-nixos-update-broker" { } ''
     import os
     import pwd
+    import re
     import selectors
     import socket
     import struct
@@ -53,6 +55,9 @@ let
     journalctl = os.path.join(systemd_package, "bin", "journalctl")
     hermes_uid = pwd.getpwnam("hermes").pw_uid
     listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
+    service_pattern = re.compile(
+        r"[A-Za-z0-9][A-Za-z0-9_.:@-]{0,246}\.service\Z"
+    )
 
 
     def service_main_pid(unit):
@@ -66,20 +71,40 @@ let
             )
         except (OSError, subprocess.TimeoutExpired):
             return 0
-        try:
-            return int(result.stdout.strip()) if result.returncode == 0 else 0
-        except ValueError:
+        if (
+            result.returncode != 0
+            or not result.stdout.endswith("\n")
+            or result.stdout.count("\n") != 1
+        ):
             return 0
+        pid_value = result.stdout[:-1]
+        if (
+            not pid_value.isascii()
+            or not pid_value.isdecimal()
+            or (len(pid_value) > 1 and pid_value.startswith("0"))
+        ):
+            return 0
+        return int(pid_value)
 
 
     def receive_request(connection):
         request = b""
-        while len(request) < 32 and not request.endswith(b"\n"):
-            chunk = connection.recv(32 - len(request))
+        while len(request) < 300 and not request.endswith(b"\n"):
+            chunk = connection.recv(300 - len(request))
             if not chunk:
                 break
             request += chunk
         return request
+
+
+    def requested_log_service(request):
+        if not request.startswith(b"logs ") or not request.endswith(b"\n"):
+            return None
+        try:
+            service = request[5:-1].decode("ascii")
+        except UnicodeDecodeError:
+            return None
+        return service if service_pattern.fullmatch(service) else None
 
 
     def bounded_process_tail(command, *, timeout, max_bytes):
@@ -182,17 +207,14 @@ let
                     )
                     continue
                 request = receive_request(connection)
-                if request == b"logs\n":
+                service = requested_log_service(request)
+                if service is not None:
                     try:
                         returncode, log_bytes, truncated, line_count = (
                             bounded_process_tail(
-                                [
-                                    journalctl,
-                                    "--unit=nixos-update.service",
-                                    "--lines=200",
-                                    "--no-pager",
-                                    "--output=short-iso",
-                                ],
+                                [journalctl, f"--unit={service}",
+                                 "--lines=200", "--no-pager",
+                                 "--output=short-iso"],
                                 timeout=15,
                                 max_bytes=60_000,
                             )
@@ -207,6 +229,7 @@ let
                     if returncode == 0:
                         header = (
                             f"ok truncated={int(truncated)} "
+                            f"bytes={len(log_bytes)} "
                             f"lines={line_count}\n"
                         )
                         connection.sendall(header.encode("ascii") + log_bytes)
