@@ -1,7 +1,7 @@
 name: nixos-update
-version: "1.1.0"
-description: "Scoped tools for queueing the NixOS update and reading its bounded logs."
+version: "1.2.0"
+description: "Approved tools for queueing NixOS updates and reading bounded service logs."
 kind: standalone
 provides_tools:
   - nixos_update
-  - nixos_update_logs
+  - systemd_service_logs

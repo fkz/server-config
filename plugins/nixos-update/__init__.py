@@ -5,32 +5,30 @@ request. Session, permanent, and YOLO command-approval settings are deliberately
 not consulted. Only after consent does the handler ask the root-owned broker to
 queue the fixed update unit or return its bounded journal excerpt.
 
-Log retrieval is read-only, parameterless, and bounded to the latest 200 journal
-lines. The broker socket is not mounted into the terminal container and accepts
-only the live main PID of the managed Hermes gateway/dashboard services.
+Log retrieval is read-only, accepts one strictly validated ``.service`` unit, and
+is bounded to the latest 200 journal lines. The broker socket is not mounted into
+the terminal container and accepts only the live main PID of the managed Hermes
+gateway/dashboard services.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import socket
 from typing import Any
 
 _TOOL_NAME = "nixos_update"
-_LOGS_TOOL_NAME = "nixos_update_logs"
+_LOGS_TOOL_NAME = "systemd_service_logs"
 _UNIT = "nixos-update.service"
 _BROKER_SOCKET = "/run/hermes-nixos-update-broker/socket"
 _LOG_LINES = 200
 _MAX_LOG_BYTES = 65_536
+_SERVICE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@-]{0,246}\.service\Z")
 _APPROVAL_MESSAGE = "Start the root-owned nixos-update.service"
 _APPROVAL_DESCRIPTION = (
     "The service fetches and deploys the latest server configuration and may "
     "restart Hermes. This confirmation applies only to this invocation."
-)
-_LOGS_APPROVAL_MESSAGE = "Read the latest nixos-update.service journal entries"
-_LOGS_APPROVAL_DESCRIPTION = (
-    "Return at most the latest 200 lines (and 60,000 bytes) from only the fixed "
-    "NixOS update service. This confirmation applies only to this invocation."
 )
 
 _SCHEMA = {
@@ -51,12 +49,18 @@ _LOGS_SCHEMA = {
     "name": _LOGS_TOOL_NAME,
     "description": (
         "Always request a fresh user confirmation, then fetch the latest 200 "
-        "journal lines for the fixed nixos-update.service. The output is bounded, "
-        "this tool accepts no arguments, and confirmations are never reused."
+        "journal lines for one exact systemd service unit. The output is bounded "
+        "and confirmations are never reused."
     ),
     "parameters": {
         "type": "object",
-        "properties": {},
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Exact systemd service unit, for example sshd.service",
+            }
+        },
+        "required": ["service"],
         "additionalProperties": False,
     },
 }
@@ -77,15 +81,19 @@ def _request_individual_consent() -> str:
     )
 
 
-def _request_update_logs_consent() -> str:
-    """Request non-persisted consent before exposing the update journal."""
+def _request_service_logs_consent(service: str) -> str:
+    """Request non-persisted consent before exposing one service journal."""
     from tools.approval import request_elicitation_consent
 
     return request_elicitation_consent(
-        _LOGS_APPROVAL_MESSAGE,
-        _LOGS_APPROVAL_DESCRIPTION,
+        f"Read the latest {service} journal entries",
+        (
+            f"Return at most the latest 200 lines (and 60,000 bytes) from {service}. "
+            "Service journals can contain sensitive data. This confirmation applies "
+            "only to this invocation."
+        ),
         timeout_seconds=120,
-        surface="nixos-update-logs",
+        surface="systemd-service-logs",
     )
 
 
@@ -102,22 +110,27 @@ def _queue_update_via_broker() -> None:
         raise RuntimeError(response or "update broker returned an empty response")
 
 
-def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
-    """Fetch a bounded journal excerpt and explicit truncation metadata."""
+def _fetch_service_logs_via_broker(service: str) -> tuple[str, bool, int]:
+    """Fetch one service's bounded journal excerpt and truncation metadata."""
     response = bytearray()
+    saw_eof = False
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         # The broker can spend up to 10 seconds authenticating both managed
         # service PIDs and 15 seconds collecting logs. Leave bounded headroom for
         # local socket setup and delivery without racing the server deadline.
         client.settimeout(45)
         client.connect(_BROKER_SOCKET)
-        client.sendall(b"logs\n")
+        client.sendall(f"logs {service}\n".encode("ascii"))
         client.shutdown(socket.SHUT_WR)
         while len(response) < _MAX_LOG_BYTES:
             chunk = client.recv(min(8_192, _MAX_LOG_BYTES - len(response)))
             if not chunk:
+                saw_eof = True
                 break
             response.extend(chunk)
+
+    if not saw_eof:
+        raise RuntimeError("service log response exceeded the client limit")
 
     header_bytes, separator, log_bytes = bytes(response).partition(b"\n")
     if not separator:
@@ -126,24 +139,30 @@ def _fetch_update_logs_via_broker() -> tuple[str, bool, int]:
 
     try:
         header = header_bytes.decode("ascii")
-        status, truncated_field, lines_field = header.split()
+        status, truncated_field, bytes_field, lines_field = header.split()
         if (
             status != "ok"
             or not truncated_field.startswith("truncated=")
+            or not bytes_field.startswith("bytes=")
             or not lines_field.startswith("lines=")
         ):
             raise ValueError
         truncated_value = truncated_field.removeprefix("truncated=")
+        bytes_value = bytes_field.removeprefix("bytes=")
         lines_value = lines_field.removeprefix("lines=")
         if truncated_value not in {"0", "1"}:
             raise ValueError
-        if (
-            not lines_value.isascii()
-            or not lines_value.isdecimal()
-            or (len(lines_value) > 1 and lines_value.startswith("0"))
-        ):
-            raise ValueError
+        for value in (bytes_value, lines_value):
+            if (
+                not value.isascii()
+                or not value.isdecimal()
+                or (len(value) > 1 and value.startswith("0"))
+            ):
+                raise ValueError
+        payload_bytes = int(bytes_value)
         line_count = int(lines_value)
+        if payload_bytes != len(log_bytes):
+            raise ValueError
         logs = log_bytes.decode("utf-8", errors="replace")
         if line_count != len(logs.splitlines()):
             raise ValueError
@@ -192,14 +211,21 @@ def _handle_nixos_update(params: dict[str, Any], **kwargs: Any) -> str:
     )
 
 
-def _handle_nixos_update_logs(params: dict[str, Any], **kwargs: Any) -> str:
-    """Confirm this invocation, then return the fixed unit's bounded journal."""
+def _handle_systemd_service_logs(params: dict[str, Any], **kwargs: Any) -> str:
+    """Confirm this invocation, then return one service's bounded journal."""
     del kwargs
-    if params:
-        return json.dumps({"success": False, "error": "this tool accepts no parameters"})
+    service = params.get("service")
+    if (
+        set(params) != {"service"}
+        or not isinstance(service, str)
+        or _SERVICE_PATTERN.fullmatch(service) is None
+    ):
+        return json.dumps(
+            {"success": False, "error": "provide exactly one valid systemd .service unit"}
+        )
 
     try:
-        consent = _request_update_logs_consent()
+        consent = _request_service_logs_consent(service)
     except Exception as exc:
         return json.dumps({"success": False, "error": f"approval failed closed: {exc}"})
 
@@ -208,19 +234,19 @@ def _handle_nixos_update_logs(params: dict[str, Any], **kwargs: Any) -> str:
             {
                 "success": False,
                 "status": "denied" if consent == "decline" else "cancelled",
-                "error": "the user did not approve this NixOS update log request",
+                "error": f"the user did not approve logs for {service}",
             }
         )
 
     try:
-        logs, truncated, returned_lines = _fetch_update_logs_via_broker()
+        logs, truncated, returned_lines = _fetch_service_logs_via_broker(service)
     except (OSError, RuntimeError) as exc:
-        return json.dumps({"success": False, "error": f"could not fetch update logs: {exc}"})
+        return json.dumps({"success": False, "error": f"could not fetch logs: {exc}"})
 
     return json.dumps(
         {
             "success": True,
-            "unit": _UNIT,
+            "unit": service,
             "requested_lines": _LOG_LINES,
             "returned_lines": returned_lines,
             "truncated": truncated,
@@ -242,7 +268,7 @@ def register(ctx: Any) -> None:
         name=_LOGS_TOOL_NAME,
         toolset="nixos_update",
         schema=_LOGS_SCHEMA,
-        handler=_handle_nixos_update_logs,
+        handler=_handle_systemd_service_logs,
         description=_LOGS_SCHEMA["description"],
         emoji="📜",
     )
