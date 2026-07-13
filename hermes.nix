@@ -5,6 +5,15 @@ let
   # `FROM scratch`).  The package closures are intentionally available under
   # their immutable /nix/store paths; Hermes overlays that directory with the
   # host store, where these exact paths are retained by this system closure.
+  # `systemd.services.<name>.path` expects package roots and appends `/bin`.
+  # Export host setuid wrappers through such a package root, rather than adding
+  # `/run/wrappers/bin` directly (which would incorrectly become `.../bin/bin`).
+  rootlessPodmanWrapperPath = pkgs.runCommand "hermes-rootless-podman-wrappers" { } ''
+    mkdir -p "$out/bin"
+    ln -s ${config.security.wrapperDir}/newuidmap "$out/bin/newuidmap"
+    ln -s ${config.security.wrapperDir}/newgidmap "$out/bin/newgidmap"
+  '';
+
   githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
 
   # The GitHub App private key remains on the host. The sandbox gets only these
@@ -113,6 +122,9 @@ let
   # privileged Podman API/socket.
   loadHermesNixSandboxImage = pkgs.writeShellScript "load-hermes-nix-sandbox-image" ''
     set -eu
+    # Rootless Podman needs the setuid NixOS wrappers (newuidmap/newgidmap),
+    # not the unprivileged shadow binaries in the Nix store.
+    export PATH="${config.security.wrapperDir}:$PATH"
     image=hermes-nix-sandbox:latest
     if ! ${pkgs.podman}/bin/podman image exists "$image"; then
       ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
@@ -292,8 +304,9 @@ in
   };
 
   # Hermes resolves `podman` from PATH when the Docker terminal backend is
-  # selected. This adds no rootful Podman socket capability.
-  systemd.services.hermes-agent.path = [ pkgs.podman ];
+  # selected. Include NixOS' setuid mapping wrappers for rootless Podman; this
+  # adds no rootful Podman socket capability.
+  systemd.services.hermes-agent.path = [ rootlessPodmanWrapperPath pkgs.podman ];
 
   # Restrict the remote desktop backend to the tailnet. The NixOS firewall
   # still blocks port 9119 on the public network interfaces.
@@ -356,6 +369,7 @@ in
       pkgs.coreutils
       pkgs.git
       pkgs.podman
+      rootlessPodmanWrapperPath
     ];
   };
 }
