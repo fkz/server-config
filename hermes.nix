@@ -232,6 +232,12 @@ let
     # image from this generation.
     ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
   '';
+
+  hermesPodmanContainerConf = pkgs.writeText "hermes-podman-containers.conf" ''
+    [engine]
+    cgroup_manager = "cgroupfs"
+    events_logger = "file"
+  '';
 in
 {
   # Hermes runs as a dedicated, unprivileged system user and persists its
@@ -342,6 +348,7 @@ in
     # Rootless Podman keeps locks and transient state here. The directory is
     # created by the required image-loader service below.
     XDG_RUNTIME_DIR = "/run/hermes-podman";
+    CONTAINERS_CONF = hermesPodmanContainerConf;
   };
   # ProtectSystem=strict is retained; grant only Podman's dedicated transient
   # runtime directory rather than a broader part of /run.
@@ -409,6 +416,7 @@ in
     environment = {
       HOME = "/var/lib/hermes";
       XDG_RUNTIME_DIR = "/run/hermes-podman";
+      CONTAINERS_CONF = hermesPodmanContainerConf;
     };
 
     path = [ pkgs.podman ];
@@ -460,6 +468,7 @@ in
       HERMES_MANAGED = "true";
       MESSAGING_CWD = "/var/lib/hermes/workspace";
       XDG_RUNTIME_DIR = "/run/hermes-podman";
+      CONTAINERS_CONF = hermesPodmanContainerConf;
     };
 
     serviceConfig = {
