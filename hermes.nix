@@ -81,7 +81,8 @@
   services.tailscale.enable = true;
   networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 9119 ];
 
-  # The Hermes desktop app connects to this backend, not to `hermes gateway`.
+  # Serve the full browser dashboard (including the embedded chat), not the
+  # headless `hermes serve` backend used exclusively by native remote clients.
   # It is intentionally separate from the messaging gateway service above.
   # /var/lib/hermes/remote-gateway.env is root-owned (0600) and contains:
   # HERMES_DASHBOARD_BASIC_AUTH_USERNAME, HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
@@ -119,7 +120,7 @@
       Group = "hermes";
       WorkingDirectory = "/var/lib/hermes/workspace";
       EnvironmentFile = "/var/lib/hermes/remote-gateway.env";
-      ExecStart = "${config.services.hermes-agent.package}/bin/hermes serve --host 0.0.0.0 --port 9119";
+      ExecStart = "${config.services.hermes-agent.package}/bin/hermes dashboard --host 0.0.0.0 --port 9119 --no-open";
       Restart = "always";
       RestartSec = 5;
       UMask = "0007";
