@@ -57,6 +57,26 @@ let
   # The GitHub App private key remains on the host. The sandbox gets only these
   # clients, which ask the host-side broker for a short-lived installation token
   # over a Unix socket.
+  # Keep the read half of the socket open after sending the request. `socat`
+  # exits when its stdin pipe reaches EOF, which can disconnect before the
+  # network-backed token minter has produced a response.
+  githubAppCredentialClient = pkgs.writers.writePython3Bin "github-app-credential-client" { } ''
+    import socket
+    import sys
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(70)
+        client.connect("${githubCredentialSocket}")
+        client.sendall(b"get\n")
+        client.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            chunk = client.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        sys.stdout.buffer.write(b"".join(chunks))
+  '';
   githubAppGitCredential = pkgs.writeShellScriptBin "github-app-git-credential" ''
     set -eu
     case "''${1:-get}" in
@@ -64,11 +84,11 @@ let
       *) exit 0 ;;
     esac
     cat >/dev/null
-    printf 'get\n' | ${pkgs.socat}/bin/socat - UNIX-CONNECT:${githubCredentialSocket}
+    exec ${githubAppCredentialClient}/bin/github-app-credential-client
   '';
   githubAppGh = pkgs.writeShellScriptBin "github-app-gh" ''
     set -eu
-    response=$(printf 'get\n' | ${pkgs.socat}/bin/socat - UNIX-CONNECT:${githubCredentialSocket})
+    response=$(${githubAppCredentialClient}/bin/github-app-credential-client)
     token=
     while IFS= read -r line; do
       case "$line" in
@@ -114,9 +134,22 @@ let
                 connection.sendall(
                     f"username=x-access-token\npassword={token}\n\n".encode()
                 )
+            except BrokenPipeError:
+                print(
+                    "GitHub credential broker: client disconnected "
+                    "before response",
+                    file=sys.stderr,
+                )
             except Exception as error:
                 print(f"GitHub credential broker: {error}", file=sys.stderr)
-                connection.sendall(b"error=credential unavailable\n\n")
+                try:
+                    connection.sendall(b"error=credential unavailable\n\n")
+                except BrokenPipeError:
+                    print(
+                        "GitHub credential broker: client disconnected "
+                        "before error response",
+                        file=sys.stderr,
+                    )
   '';
 
   # Baseline required by Hermes' remote terminal, file, and code-execution
@@ -147,6 +180,7 @@ let
     pkgs.socat
     pkgs.util-linux
     pkgs.xz
+    githubAppCredentialClient
     githubAppGitCredential
     githubAppGh
   ];
