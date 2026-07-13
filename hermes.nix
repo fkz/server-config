@@ -232,7 +232,15 @@ in
     # across NixOS rebuilds.
   };
 
-  systemd.services.hermes-agent.environment.TELEGRAM_HOME_CHANNEL = "479215762";
+  systemd.services.hermes-agent.environment = {
+    TELEGRAM_HOME_CHANNEL = "479215762";
+    # Rootless Podman keeps locks and transient state here. The directory is
+    # created by the required image-loader service below.
+    XDG_RUNTIME_DIR = "/run/hermes-podman";
+  };
+  # ProtectSystem=strict is retained; grant only Podman's dedicated transient
+  # runtime directory rather than a broader part of /run.
+  systemd.services.hermes-agent.serviceConfig.ReadWritePaths = [ "/run/hermes-podman" ];
 
   # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
   # store targets of its /bin symlinks even if no other system path needs one.
@@ -346,6 +354,7 @@ in
       HERMES_HOME = "/var/lib/hermes/.hermes";
       HERMES_MANAGED = "true";
       MESSAGING_CWD = "/var/lib/hermes/workspace";
+      XDG_RUNTIME_DIR = "/run/hermes-podman";
     };
 
     serviceConfig = {
@@ -361,7 +370,11 @@ in
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = false;
-      ReadWritePaths = [ "/var/lib/hermes" "/var/lib/hermes/workspace" ];
+      ReadWritePaths = [
+        "/var/lib/hermes"
+        "/var/lib/hermes/workspace"
+        "/run/hermes-podman"
+      ];
       PrivateTmp = true;
     };
 
