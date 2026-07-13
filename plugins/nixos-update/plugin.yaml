@@ -1,0 +1,6 @@
+name: nixos-update
+version: "1.0.0"
+description: "One individually approved tool for queueing the root-owned NixOS update service."
+kind: standalone
+provides_tools:
+  - nixos_update

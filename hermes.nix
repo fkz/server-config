@@ -14,6 +14,123 @@ let
     ln -s ${config.security.wrapperDir}/newgidmap "$out/bin/newgidmap"
   '';
 
+  # Host-side plugin for the one privileged action that must stay outside the
+  # terminal sandbox. The handler itself forces fresh, non-persisted human
+  # consent before it can contact the fixed root-owned update broker.
+  nixosUpdatePlugin = pkgs.linkFarm "hermes-nixos-update-plugin" [
+    {
+      name = "plugin.yaml";
+      path = ./plugins/nixos-update/plugin.yaml;
+    }
+    {
+      name = "__init__.py";
+      path = ./plugins/nixos-update/__init__.py;
+    }
+  ];
+
+  nixosUpdateBrokerSocket = "/run/hermes-nixos-update-broker/socket";
+  # Root-owned broker for the one fixed host action. In addition to Unix-socket
+  # permissions, it verifies SO_PEERCRED against the current MainPID of the two
+  # managed Hermes services. A separate process running as `hermes` therefore
+  # cannot reuse this capability, and the socket is not mounted into Podman.
+  nixosUpdateBroker = pkgs.writers.writePython3Bin "hermes-nixos-update-broker" { } ''
+    import os
+    import pwd
+    import socket
+    import struct
+    import subprocess
+    import sys
+
+    if int(os.environ.get("LISTEN_FDS", "0")) != 1:
+        raise SystemExit("expected exactly one systemd socket")
+
+    systemd_package = (
+        "${pkgs.systemd}"
+    )
+    systemctl = os.path.join(systemd_package, "bin", "systemctl")
+    hermes_uid = pwd.getpwnam("hermes").pw_uid
+    listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
+
+
+    def service_main_pid(unit):
+        try:
+            result = subprocess.run(
+                [systemctl, "show", "--property=MainPID", "--value", unit],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        try:
+            return int(result.stdout.strip()) if result.returncode == 0 else 0
+        except ValueError:
+            return 0
+
+
+    def receive_request(connection):
+        request = b""
+        while len(request) < 32 and not request.endswith(b"\n"):
+            chunk = connection.recv(32 - len(request))
+            if not chunk:
+                break
+            request += chunk
+        return request
+
+
+    while True:
+        connection, _ = listener.accept()
+        with connection:
+            try:
+                credentials = connection.getsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_PEERCRED,
+                    12,
+                )
+                pid, uid, _gid = struct.unpack("3i", credentials)
+                allowed_pids = {
+                    service_main_pid("hermes-agent.service"),
+                    service_main_pid("hermes-serve.service"),
+                }
+                if uid != hermes_uid or pid not in allowed_pids or pid == 0:
+                    connection.sendall(b"error: unauthorized peer\n")
+                    print(
+                        f"rejected update request from uid={uid} pid={pid}",
+                        file=sys.stderr,
+                    )
+                    continue
+                if receive_request(connection) != b"start\n":
+                    connection.sendall(b"error: unsupported request\n")
+                    continue
+
+                try:
+                    result = subprocess.run(
+                        [
+                            systemctl,
+                            "start",
+                            "--no-block",
+                            "nixos-update.service",
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    connection.sendall(f"error: {error}\n".encode())
+                    continue
+                if result.returncode == 0:
+                    connection.sendall(b"ok\n")
+                else:
+                    detail = (
+                        result.stderr or result.stdout or "systemctl failed"
+                    ).strip()
+                    connection.sendall(f"error: {detail[:1000]}\n".encode())
+            except (BrokenPipeError, ConnectionError, OSError) as error:
+                print(f"update broker client error: {error}", file=sys.stderr)
+  '';
+
   githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
 
   # The token minter is a Nix package, not a mutable helper in Hermes' state
@@ -279,6 +396,7 @@ in
   services.hermes-agent = {
     enable = true;
     addToSystemPackages = true;
+    extraPlugins = [ nixosUpdatePlugin ];
 
     # Runtime-only credentials for the messaging gateways. These files are read
     # by the NixOS activation script and merged into
@@ -309,6 +427,8 @@ in
     };
 
     settings = {
+      plugins.enabled = [ "nixos-update" ];
+
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
       model = {
@@ -375,6 +495,37 @@ in
     #   sudo -u hermes HERMES_HOME=/var/lib/hermes/.hermes hermes auth add openai-codex
     # The resulting auth.json stays in /var/lib/hermes/.hermes and is preserved
     # across NixOS rebuilds.
+  };
+
+  systemd.sockets.hermes-nixos-update-broker = {
+    description = "NixOS update broker socket for managed Hermes services";
+    before = [ "hermes-agent.service" "hermes-serve.service" ];
+    requiredBy = [ "hermes-agent.service" "hermes-serve.service" ];
+    wantedBy = [ "sockets.target" ];
+    listenStreams = [ nixosUpdateBrokerSocket ];
+    socketConfig = {
+      SocketMode = "0600";
+      SocketUser = "hermes";
+      SocketGroup = "hermes";
+    };
+  };
+
+  systemd.services.hermes-nixos-update-broker = {
+    description = "Queue the fixed root-owned NixOS update for Hermes";
+    requires = [ "hermes-nixos-update-broker.socket" ];
+    after = [ "hermes-nixos-update-broker.socket" ];
+    serviceConfig = {
+      User = "root";
+      Group = "root";
+      ExecStart = "${nixosUpdateBroker}/bin/hermes-nixos-update-broker";
+      Restart = "on-failure";
+      RestartSec = 2;
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      RestrictAddressFamilies = [ "AF_UNIX" ];
+    };
   };
 
   systemd.services.hermes-agent.environment = {
