@@ -381,6 +381,7 @@ let
     # (e.g. a push opens two credential requests in quick succession).
     listener.listen(16)
 
+
     def handle(connection):
         with connection:
             request = connection.recv(16)
@@ -420,6 +421,7 @@ let
                         "before error response",
                         file=sys.stderr,
                     )
+
 
     while True:
         connection, _ = listener.accept()
