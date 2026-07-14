@@ -15,8 +15,9 @@ let
   '';
 
   # Host-side plugin for the privileged update action and bounded service journal
-  # access that must stay outside the terminal sandbox. Each handler forces
-  # fresh, non-persisted human consent before contacting the root broker.
+  # access that must stay outside the terminal sandbox. Updates always need
+  # fresh consent; log consent can be cached only for the selected service and
+  # current Hermes session before contacting the root broker.
   nixosUpdatePlugin = pkgs.linkFarm "hermes-nixos-update-plugin" [
     {
       name = "plugin.yaml";

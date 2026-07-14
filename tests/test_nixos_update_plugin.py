@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
+import threading
 from types import ModuleType
 
 import pytest
@@ -302,3 +304,101 @@ def test_log_client_rejects_malformed_or_mismatched_metadata(
 
     with pytest.raises(RuntimeError):
         plugin._fetch_service_logs_via_broker("sshd.service")
+
+
+class FakeApprovalModule(ModuleType):
+    def __init__(self, choices: list[str]) -> None:
+        super().__init__("tools.approval")
+        self._lock = threading.Lock()
+        self._session_approved: dict[str, set[str]] = {}
+        def callback(_data: object) -> None:
+            return None
+
+        self._gateway_notify_cbs = {"matrix:room:thread": callback}
+        self.choices = choices
+        self.requests: list[dict[str, object]] = []
+        self.permanent_approvals: list[str] = []
+
+    def get_current_session_key(self, default: str = "default") -> str:
+        del default
+        return "matrix:room:thread"
+
+    def _is_gateway_approval_context(self) -> bool:
+        return True
+
+    def _await_gateway_decision(
+        self,
+        session_key: str,
+        notify_cb: object,
+        approval_data: dict[str, object],
+        *,
+        surface: str,
+    ) -> dict[str, object]:
+        assert session_key == "matrix:room:thread"
+        assert notify_cb is self._gateway_notify_cbs[session_key]
+        assert surface == "systemd-service-logs"
+        self.requests.append(approval_data)
+        return {"resolved": True, "choice": self.choices.pop(0)}
+
+    def approve_session(self, session_key: str, pattern_key: str) -> None:
+        self._session_approved.setdefault(session_key, set()).add(pattern_key)
+
+    def approve_permanent(self, pattern_key: str) -> None:
+        self.permanent_approvals.append(pattern_key)
+
+
+def install_fake_approval(
+    monkeypatch: pytest.MonkeyPatch, choices: list[str]
+) -> FakeApprovalModule:
+    tools_module = ModuleType("tools")
+    approval_module = FakeApprovalModule(choices)
+    tools_module.approval = approval_module
+    monkeypatch.setitem(sys.modules, "tools", tools_module)
+    monkeypatch.setitem(sys.modules, "tools.approval", approval_module)
+    return approval_module
+
+
+def test_service_log_session_consent_is_scoped_to_exact_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = load_plugin()
+    approval = install_fake_approval(monkeypatch, ["session", "once"])
+
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+    assert plugin._request_service_logs_consent("nginx.service") == "accept"
+
+    assert len(approval.requests) == 2
+    assert approval.requests[0]["allow_permanent"] is False
+    assert approval.requests[0]["pattern_key"] == (
+        "systemd_service_logs:sshd.service"
+    )
+    assert approval.requests[1]["pattern_key"] == (
+        "systemd_service_logs:nginx.service"
+    )
+
+
+def test_service_log_once_consent_is_not_reused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = load_plugin()
+    approval = install_fake_approval(monkeypatch, ["once", "once"])
+
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+
+    assert len(approval.requests) == 2
+    assert approval._session_approved == {}
+
+
+def test_service_log_permanent_choice_is_downgraded_to_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = load_plugin()
+    approval = install_fake_approval(monkeypatch, ["always"])
+
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+    assert plugin._request_service_logs_consent("sshd.service") == "accept"
+
+    assert len(approval.requests) == 1
+    assert approval.permanent_approvals == []
