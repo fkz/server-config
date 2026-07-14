@@ -570,6 +570,10 @@ in
     ];
 
     environment = {
+      # Local SearXNG instance configured in searxng.nix. This makes Hermes'
+      # web_search tool available without an external search API key.
+      SEARXNG_URL = "http://127.0.0.1:8888";
+
       MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
       MATRIX_USER_ID = "@hermes:home.taila70923.ts.net";
       MATRIX_ALLOWED_USERS = "@fabian:home.taila70923.ts.net";
@@ -648,6 +652,8 @@ in
         memory_enabled = true;
         user_profile_enabled = true;
       };
+
+      web.search_backend = "searxng";
     };
 
     # Bootstrap the OpenAI Codex OAuth login on the server after deployment:

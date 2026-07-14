@@ -13,6 +13,7 @@
       ./wifi.nix
       ./home-assistant.nix
       ./hermes.nix
+      ./searxng.nix
       ./matrix.nix
     ];
 
