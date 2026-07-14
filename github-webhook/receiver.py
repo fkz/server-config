@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """GitHub webhook receiver that triggers a NixOS update on push to main.
 
 The receiver runs as a small root-owned systemd service bound to
@@ -21,14 +20,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
-import re
-import selectors
 import socket
-import struct
 import subprocess
 import sys
-import time
 
 SECRET_PATH = "/var/lib/hermes/.hermes/secrets/github-webhook-secret"
 LISTEN_HOST = "127.0.0.1"
@@ -56,11 +50,13 @@ def constant_time_compare(a: bytes, b: bytes) -> bool:
     return hmac.compare_digest(a, b)
 
 
-def read_http_request(connection: socket.socket) -> tuple[dict[str, str], bytes] | None:
-    """Read one HTTP request and return (headers, body) or None on protocol error.
+def read_http_request(
+    connection: socket.socket,
+) -> tuple[dict[str, str], bytes] | None:
+    """Read one HTTP request; return (headers, body) or None on error.
 
-    Bodies are capped at MAX_BODY_BYTES. A ``Content-Length`` larger than the
-    cap immediately fails closed rather than buffering.
+    Bodies are capped at MAX_BODY_BYTES. A ``Content-Length`` larger than
+    the cap immediately fails closed rather than buffering.
     """
     connection.settimeout(REQUEST_TIMEOUT)
     buf = bytearray()
@@ -109,7 +105,9 @@ def read_http_request(connection: socket.socket) -> tuple[dict[str, str], bytes]
     return headers, bytes(body)
 
 
-def send_response(connection: socket.socket, status: int, message: str) -> None:
+def send_response(
+    connection: socket.socket, status: int, message: str
+) -> None:
     payload = message.encode("utf-8")
     response = (
         f"HTTP/1.1 {status} {message}\r\n"
@@ -142,7 +140,9 @@ def trigger_update() -> tuple[int, str]:
     return 202, "nixos-update queued"
 
 
-def verify_signature(secret: bytes, signature_header: str | None, body: bytes) -> bool:
+def verify_signature(
+    secret: bytes, signature_header: str | None, body: bytes
+) -> bool:
     if not signature_header:
         return False
     # Accept GitHub's "sha256=<hex>" scheme.
@@ -192,7 +192,10 @@ def handle_connection(connection: socket.socket, secret: bytes | None) -> None:
 
         if secret is None:
             send_response(connection, 500, "Receiver not configured")
-            print("webhook secret missing; rejecting all requests", file=sys.stderr)
+            print(
+                "webhook secret missing; rejecting all requests",
+                file=sys.stderr,
+            )
             return
 
         signature = headers.get("x-hub-signature-256")
