@@ -90,6 +90,13 @@ in
     };
   };
 
+  # An old root-owned log file prevents Home Assistant (running as `hass`) from
+  # starting. Repair only that active log file and preserve its existing mode;
+  # Home Assistant can manage rotated logs through the hass-owned directory.
+  systemd.tmpfiles.rules = [
+    "z /var/lib/hass/home-assistant.log - hass hass -"
+  ];
+
   networking.firewall = {
     enable = true;
     allowPing = true;
