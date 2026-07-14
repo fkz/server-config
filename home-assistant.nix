@@ -114,6 +114,12 @@ in
     recommendedGzipSettings = true;
     recommendedProxySettings = true;
     recommendedTlsSettings = true;
+    # Listen on both IPv4 and IPv6. The public hostname
+    # (assistant.schmitthenner.eu) is published via an AAAA record, so GitHub
+    # webhook deliveries reach the server over IPv6. Without this, nginx binds
+    # only 0.0.0.0 and IPv6 connections to /webhook/ fail with "could not
+    # connect to host".
+    defaultListenAddresses = [ "0.0.0.0" "[::]" ];
 
     virtualHosts.${publicHost} = {
       enableACME = true;
