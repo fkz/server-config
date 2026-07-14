@@ -2,12 +2,15 @@ name: Validate NixOS configuration
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: nixos-validation-${{ github.event.pull_request.number }}
+  group: nixos-validation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +32,12 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Check changed files for whitespace errors
+        if: github.event_name == 'pull_request'
         run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+
+      - name: Check pushed files for whitespace errors
+        if: github.event_name == 'push'
+        run: git diff --check "${{ github.event.before }}...${{ github.sha }}"
 
       - name: Run plugin tests
         run: nix shell --inputs-from . nixpkgs#python3Packages.pytest -c pytest -q
