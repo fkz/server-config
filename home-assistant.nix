@@ -11,6 +11,16 @@ let
       proxyPass = "http://127.0.0.1:8123";
       proxyWebsockets = true;
     };
+    # GitHub push-to-main webhook. nginx terminates TLS on 443; the trailing
+    # slash on proxyPass strips the /webhook/ prefix before it reaches the
+    # receiver. The receiver enforces HMAC-SHA256, so no basic auth is added.
+    "/webhook/" = {
+      proxyPass = "http://127.0.0.1:8081/";
+      extraConfig = ''
+        proxy_ssl_verify off;
+        client_max_body_size 1m;
+      '';
+    };
     "/zig2q/" = {
       basicAuthFile = "/var/lib/htpasswd";
       proxyPass = "http://127.0.0.1:8080/";

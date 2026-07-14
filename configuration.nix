@@ -9,6 +9,7 @@
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
       ./updater.nix
+      ./github-webhook.nix
       ./wifi.nix
       ./home-assistant.nix
       ./hermes.nix
