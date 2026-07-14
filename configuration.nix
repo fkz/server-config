@@ -13,6 +13,7 @@
       ./wifi.nix
       ./home-assistant.nix
       ./hermes.nix
+      ./hermes-skills-audit.nix
       ./matrix.nix
     ];
 
