@@ -169,15 +169,28 @@ in
           PASSWORD=SrQ3kQN6ygbEcAv4agcpCVWiJ
           HOSTNAME=assistant.schmitthenner.eu
 
+          # IPv6: the server's global dynamic SLAAC address.
           IPV6=$(ip -6 addr show dev enp0s25 \
             | awk '/inet6/ && /global/ && /dynamic/ && /mngtmpaddr/ && !/temporary/ && !/deprecated/ && $2 ~ /^[23][0-9a-fA-F]*:/ { print $2 }' \
             | cut -d/ -f1 | head -n1)
-          
+
+          # IPv4: the public IPv4 as seen by the internet (the Fritzbox'
+          # external address, since the server sits behind NAT). Query an
+          # external service so we publish the routable address, not the
+          # server's private 192.168.x.x. Falls back to letting INWX use the
+          # request source IP when the lookup fails.
+          IPV4=$(curl -s --max-time 10 https://api.ipify.org || true)
+          if ! echo "$IPV4" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            IPV4=""
+          fi
+
           UPDATE_URL="https://$USERNAME:$PASSWORD@dyndns.inwx.com/nic/update?hostname=$HOSTNAME"
           [ -n "$IPV6" ] && UPDATE_URL="$UPDATE_URL&myipv6=$IPV6"
+          [ -n "$IPV4" ] && UPDATE_URL="$UPDATE_URL&myipv4=$IPV4"
 
           echo "Updating INWX with:"
           echo "  IPv6: $IPV6"
+          echo "  IPv4: $IPV4"
 
           curl -s "$UPDATE_URL"
         '';
