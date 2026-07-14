@@ -31,6 +31,8 @@ in
       };
       serial = {
         port = "/dev/serial/by-id/usb-Texas_Instruments_TI_CC2531_USB_CDC___0X00124B001DF40090-if00";
+        # Zigbee2MQTT 2.x no longer reliably auto-detects this TI coordinator.
+        adapter = "zstack";
       };
       # Zigbee2MQTT 2.x represents the Home Assistant integration as an object.
       homeassistant = {
