@@ -186,7 +186,7 @@ in
 
           UPDATE_URL="https://$USERNAME:$PASSWORD@dyndns.inwx.com/nic/update?hostname=$HOSTNAME"
           [ -n "$IPV6" ] && UPDATE_URL="$UPDATE_URL&myipv6=$IPV6"
-          [ -n "$IPV4" ] && UPDATE_URL="$UPDATE_URL&myipv4=$IPV4"
+          [ -n "$IPV4" ] && UPDATE_URL="$UPDATE_URL&myip=$IPV4"
 
           echo "Updating INWX with:"
           echo "  IPv6: $IPV6"
