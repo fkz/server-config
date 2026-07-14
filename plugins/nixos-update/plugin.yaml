@@ -1,5 +1,5 @@
 name: nixos-update
-version: "1.2.0"
+version: "1.3.0"
 description: "Approved tools for queueing NixOS updates and reading bounded service logs."
 kind: standalone
 provides_tools:

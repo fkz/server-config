@@ -1,9 +1,11 @@
 """Scoped tools for starting the NixOS update and reading its logs.
 
-Every tool invocation performs a synchronous, non-persisted human consent
-request. Session, permanent, and YOLO command-approval settings are deliberately
-not consulted. Only after consent does the handler ask the root-owned broker to
-queue the fixed update unit or return its bounded journal excerpt.
+The update action always performs a synchronous, non-persisted human consent
+request. Log access may instead be approved once or for the current Hermes
+session, scoped to the exact validated service name. Permanent and YOLO
+approvals are deliberately not honored. Only after consent does the handler ask
+the root-owned broker to queue the fixed update unit or return its bounded
+journal excerpt.
 
 Log retrieval is read-only, accepts one strictly validated ``.service`` unit, and
 is bounded to the latest 200 journal lines. The broker socket is not mounted into
@@ -48,9 +50,10 @@ _SCHEMA = {
 _LOGS_SCHEMA = {
     "name": _LOGS_TOOL_NAME,
     "description": (
-        "Always request a fresh user confirmation, then fetch the latest 200 "
-        "journal lines for one exact systemd service unit. The output is bounded "
-        "and confirmations are never reused."
+        "Request confirmation, then fetch the latest 200 journal lines for one "
+        "exact systemd service unit. Approval may be reused only for that exact "
+        "service in the current session; permanent approval is disabled. The "
+        "output is bounded."
     ),
     "parameters": {
         "type": "object",
@@ -82,19 +85,72 @@ def _request_individual_consent() -> str:
 
 
 def _request_service_logs_consent(service: str) -> str:
-    """Request non-persisted consent before exposing one service journal."""
-    from tools.approval import request_elicitation_consent
+    """Request once-or-session consent for one exact service journal."""
+    from tools import approval
 
-    return request_elicitation_consent(
-        f"Read the latest {service} journal entries",
-        (
-            f"Return at most the latest 200 lines (and 60,000 bytes) from {service}. "
-            "Service journals can contain sensitive data. This confirmation applies "
-            "only to this invocation."
-        ),
-        timeout_seconds=120,
-        surface="systemd-service-logs",
+    session_key = approval.get_current_session_key(default="")
+    pattern_key = f"systemd_service_logs:{service}"
+
+    # Check only the in-memory session set. ``is_approved`` also consults the
+    # permanent command allowlist, which must never authorize journal access.
+    if session_key:
+        with approval._lock:
+            session_approvals = approval._session_approved.get(session_key, set())
+            if pattern_key in session_approvals:
+                return "accept"
+
+    message = f"Read the latest {service} journal entries"
+    description = (
+        f"Return at most the latest 200 lines (and 60,000 bytes) from {service}. "
+        "Service journals can contain sensitive data. Session approval applies "
+        "only to this exact service and is not persisted."
     )
+
+    if approval._is_gateway_approval_context():
+        with approval._lock:
+            notify_cb = approval._gateway_notify_cbs.get(session_key)
+        if notify_cb is None:
+            return "decline"
+        decision = approval._await_gateway_decision(
+            session_key,
+            notify_cb,
+            {
+                "command": message,
+                "description": description,
+                "pattern_key": pattern_key,
+                "pattern_keys": [pattern_key],
+                "allow_permanent": False,
+            },
+            surface="systemd-service-logs",
+        )
+        if decision.get("notify_failed"):
+            return "decline"
+        if not decision.get("resolved"):
+            return "cancel"
+        choice = decision.get("choice")
+    else:
+        try:
+            from tools.terminal_tool import _get_approval_callback
+
+            approval_callback = _get_approval_callback()
+        except Exception:
+            approval_callback = None
+        choice = approval.prompt_dangerous_approval(
+            message,
+            description,
+            timeout_seconds=120,
+            allow_permanent=False,
+            approval_callback=approval_callback,
+        )
+
+    if choice in {"session", "always"} and session_key:
+        # Some generic approval clients can still submit ``always`` manually.
+        # Downgrade it to process-memory session scope; never persist it.
+        approval.approve_session(session_key, pattern_key)
+        return "accept"
+    if choice == "once":
+        return "accept"
+    return "decline"
 
 
 def _queue_update_via_broker() -> None:
