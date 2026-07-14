@@ -1,4 +1,24 @@
-{ pkgs, ... }: {
+{ pkgs, ... }:
+
+let
+  publicHost = "assistant.schmitthenner.eu";
+  tailnetHost = "home.taila70923.ts.net";
+
+  homeAssistantLocations = {
+    "/" = {
+      # Use the explicit IPv4 loopback address. Resolving `localhost` to ::1
+      # produces nginx 502 responses when Home Assistant only listens on IPv4.
+      proxyPass = "http://127.0.0.1:8123";
+      proxyWebsockets = true;
+    };
+    "/zig2q/" = {
+      basicAuthFile = "/var/lib/htpasswd";
+      proxyPass = "http://127.0.0.1:8080/";
+      proxyWebsockets = true;
+    };
+  };
+in
+{
   services.mosquitto.enable = true;
   
   services.zigbee2mqtt = {
@@ -19,7 +39,7 @@
       frontend = {
         enabled = true;
         base_url = "/zig2q";
-        url = "https://assistant.schmitthenner.eu";
+        url = "https://${publicHost}";
       };
     };
   };
@@ -33,7 +53,7 @@
         name = "Home";
         unit_system = "metric";
         time_zone = "UTC";
-        external_url = "https://assistant.schmitthenner.eu";
+        external_url = "https://${publicHost}";
       };
       frontend = {
         themes = "!include_dir_merge_named themes";
@@ -83,19 +103,20 @@
     recommendedProxySettings = true;
     recommendedTlsSettings = true;
 
-    virtualHosts."assistant.schmitthenner.eu" = {
+    virtualHosts.${publicHost} = {
       enableACME = true;
       forceSSL = true;
+      locations = homeAssistantLocations;
+    };
 
-      locations."/" = {
-        proxyPass = "http://localhost:8123";
-        proxyWebsockets = true; # Home Assistant uses websockets
-      };
-      locations."/zig2q/" = {
-        basicAuthFile = "/var/lib/htpasswd";
-        proxyPass = "http://localhost:8080/";
-        proxyWebsockets = true;
-      };
+    # MagicDNS resolves both names to the Tailscale address. Keep this vhost on
+    # plain HTTP: the tailnet transport is already encrypted, while a TLS
+    # certificate for the short name `home` cannot be valid. This lets enrolled
+    # devices open http://home without weakening or replacing the public HTTPS
+    # endpoint above.
+    virtualHosts.home = {
+      serverAliases = [ tailnetHost ];
+      locations = homeAssistantLocations;
     };
   };
 
