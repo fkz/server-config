@@ -340,7 +340,14 @@ let
       get) ;;
       *) exit 0 ;;
     esac
-    cat >/dev/null
+    # Drain git's credential request, but only up to the blank separator line.
+    # git keeps the request pipe open until it reads our reply, so reading to
+    # EOF here would deadlock: the helper would block forever waiting for git
+    # to close stdin, while git blocks waiting for the helper's reply. Reading
+    # just the request headers is sufficient; the broker ignores them anyway.
+    while IFS= read -r line; do
+      [ -z "$line" ] && break
+    done
     exec ${githubAppCredentialClient}/bin/github-app-credential-client
   '';
   githubAppGh = pkgs.writeShellScriptBin "github-app-gh" ''
@@ -362,18 +369,24 @@ let
     import socket
     import subprocess
     import sys
+    import threading
 
     if int(os.environ.get("LISTEN_FDS", "0")) != 1:
         raise SystemExit("expected exactly one systemd socket")
 
     listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
-    while True:
-        connection, _ = listener.accept()
+    # Serve each connection in its own thread. The broker mints a fresh
+    # installation token per request, which can take a few seconds; a
+    # single-threaded accept loop would stall concurrent git operations
+    # (e.g. a push opens two credential requests in quick succession).
+    listener.listen(16)
+
+    def handle(connection):
         with connection:
             request = connection.recv(16)
             if request != b"get\n":
                 connection.sendall(b"error=unsupported request\n\n")
-                continue
+                return
             try:
                 token_command = (
                     "${githubAppToken}"
@@ -407,6 +420,10 @@ let
                         "before error response",
                         file=sys.stderr,
                     )
+
+    while True:
+        connection, _ = listener.accept()
+        threading.Thread(target=handle, args=(connection,), daemon=True).start()
   '';
 
   # Baseline required by Hermes' remote terminal, file, and code-execution
