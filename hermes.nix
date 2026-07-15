@@ -622,6 +622,14 @@ in
           model = "google/gemini-2.5-flash";
           reasoning_effort = "none";
         };
+        # The skill/memory improvement fork needs reliable tool use, but not
+        # the premium interactive model. MiMo receives Hermes' compact review
+        # digest when routed separately, limiting cold input-token cost.
+        background_review = {
+          provider = "openrouter";
+          model = "xiaomi/mimo-v2.5";
+          reasoning_effort = "low";
+        };
       };
 
       terminal = {
