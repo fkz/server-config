@@ -15,6 +15,11 @@ SECRET_PATTERNS = {
     "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"),
     "AWS access key": re.compile(r"AKIA[0-9A-Z]{16}"),
 }
+PROFILE_FILES = (
+    Path("SOUL.md"),
+    Path("memories/MEMORY.md"),
+    Path("memories/USER.md"),
+)
 
 
 def parse_frontmatter(path):
@@ -86,6 +91,36 @@ def copy_skill(source_dir, destination_dir):
             shutil.copyfile(path, target)
 
 
+def export_profile_files(profile_source, destination):
+    export_root = destination / "profile"
+    if export_root.exists():
+        shutil.rmtree(export_root)
+    export_root.mkdir(parents=True)
+
+    exported = []
+    for relative in PROFILE_FILES:
+        source = profile_source / relative
+        if not source.exists():
+            continue
+        if source.is_symlink() or not source.is_file():
+            raise RuntimeError(f"refusing profile path: {source}")
+        try:
+            text = source.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            message = f"refusing binary profile file: {source}"
+            raise RuntimeError(message) from error
+        if not text.strip():
+            continue
+        target = export_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        exported.append(relative)
+
+    if export_root.exists():
+        scan_for_secrets(export_root)
+    return exported
+
+
 def clean_text(value):
     return " ".join(value.replace("|", "\\|").split())
 
@@ -114,9 +149,12 @@ def build_catalog(skills):
     return "\n".join(lines)
 
 
-def export(source, destination):
+def export(source, destination, profile_source=None):
     source = source.resolve()
     destination = destination.resolve()
+    if profile_source is None:
+        profile_source = source.parent
+    profile_source = profile_source.resolve()
     if not source.is_dir():
         raise RuntimeError(f"skill source does not exist: {source}")
     if source == destination or source in destination.parents:
@@ -152,6 +190,7 @@ def export(source, destination):
         copy_skill(skill["source"], export_root / skill["relative"])
 
     scan_for_secrets(export_root)
+    exported_profile_files = export_profile_files(profile_source, destination)
     (destination / "CATALOG.md").write_text(
         build_catalog(discovered),
         encoding="utf-8",
@@ -170,14 +209,20 @@ def export(source, destination):
         encoding="utf-8",
     )
     tracked_count = sum(skill["status"] == "tracked" for skill in discovered)
-    print(f"exported {tracked_count} of {len(discovered)} skills")
+    print(
+        f"exported {tracked_count} of {len(discovered)} skills and "
+        f"{len(exported_profile_files)} profile files"
+    )
 
 
 def main():
-    if len(sys.argv) != 3:
-        usage = "usage: export.py SOURCE_SKILLS DESTINATION_REPOSITORY"
+    if len(sys.argv) != 4:
+        usage = (
+            "usage: export.py SOURCE_SKILLS SOURCE_PROFILE "
+            "DESTINATION_REPOSITORY"
+        )
         raise SystemExit(usage)
-    export(Path(sys.argv[1]), Path(sys.argv[2]))
+    export(Path(sys.argv[1]), Path(sys.argv[3]), Path(sys.argv[2]))
 
 
 if __name__ == "__main__":

@@ -132,3 +132,62 @@ def test_replaces_stale_managed_export(tmp_path):
 
     assert not (destination / "skills/stale").exists()
     assert (destination / "skills/current/SKILL.md").exists()
+
+
+def test_exports_only_non_empty_allowlisted_profile_files(tmp_path):
+    profile = tmp_path / "profile"
+    source = profile / "skills"
+    destination = tmp_path / "repository"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    (profile / "memories").mkdir()
+    (profile / "SOUL.md").write_text("# Custom soul\n", encoding="utf-8")
+    (profile / "memories/MEMORY.md").write_text(
+        "stable memory\n",
+        encoding="utf-8",
+    )
+    (profile / "memories/USER.md").write_text("  \n", encoding="utf-8")
+    (profile / "config.yaml").write_text("secret: no\n", encoding="utf-8")
+    (profile / ".env").write_text("TOKEN=no\n", encoding="utf-8")
+
+    EXPORT_SKILLS.export(source, destination, profile)
+
+    assert (destination / "profile/SOUL.md").read_text() == "# Custom soul\n"
+    assert (
+        destination / "profile/memories/MEMORY.md"
+    ).read_text() == "stable memory\n"
+    assert not (destination / "profile/memories/USER.md").exists()
+    assert not (destination / "profile/config.yaml").exists()
+    assert not (destination / "profile/.env").exists()
+
+
+def test_removes_stale_profile_files(tmp_path):
+    profile = tmp_path / "profile"
+    source = profile / "skills"
+    destination = tmp_path / "repository"
+    source.mkdir(parents=True)
+    (destination / "profile/memories").mkdir(parents=True)
+    (destination / "profile/memories/USER.md").write_text(
+        "stale\n",
+        encoding="utf-8",
+    )
+
+    EXPORT_SKILLS.export(source, destination, profile)
+
+    assert (destination / "profile").is_dir()
+    assert not any((destination / "profile").iterdir())
+
+
+def test_rejects_secrets_in_profile_files(tmp_path):
+    profile = tmp_path / "profile"
+    source = profile / "skills"
+    destination = tmp_path / "repository"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    (profile / "SOUL.md").write_text(
+        "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="private key"):
+        EXPORT_SKILLS.export(source, destination, profile)

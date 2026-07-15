@@ -1,6 +1,7 @@
 { pkgs, ... }:
 
 let
+  profileSource = "/var/lib/hermes/.hermes";
   skillsSource = "/var/lib/hermes/.hermes/skills";
   mirrorCheckout = "/var/lib/hermes/hermes-skills-audit";
   mirrorRemote = "https://github.com/fkz/hermes-skills.git";
@@ -81,15 +82,15 @@ let
       fi
 
       ${exportHermesSkills}/bin/export-hermes-skills \
-        ${skillsSource} "$repo"
-      git -C "$repo" add README.md CATALOG.md metadata skills
+        ${skillsSource} ${profileSource} "$repo"
+      git -C "$repo" add README.md CATALOG.md metadata profile skills
 
       if git -C "$repo" diff --cached --quiet; then
         echo "Hermes skill mirror is already current."
         exit 0
       fi
 
-      git -C "$repo" commit -m "chore: snapshot Hermes skills"
+      git -C "$repo" commit -m "chore: snapshot Hermes profile"
       git_auth -C "$repo" push -u origin HEAD:main
     '';
   };
