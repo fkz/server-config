@@ -283,6 +283,17 @@ let
     text = ''
       key=/var/lib/hermes/.hermes/secrets/github-app-private-key.pem
       app_id=$(tr -d '[:space:]' < /var/lib/hermes/.hermes/secrets/github-app-id)
+      account="''${1:-fkz}"
+
+      # The sandbox may select only installations explicitly trusted here.
+      # Never expose arbitrary App installations through the broker socket.
+      case "$account" in
+        fkz|qelg) ;;
+        *)
+          printf 'unsupported GitHub App account\n' >&2
+          exit 2
+          ;;
+      esac
 
       b64url() {
         openssl base64 -A | tr '+/' '-_' | tr -d '='
@@ -301,7 +312,8 @@ let
         -H 'Accept: application/vnd.github+json' \
         -H "Authorization: Bearer $jwt" \
         https://api.github.com/app/installations \
-        | jq -r '.[] | select(.account.login == "fkz") | .id' | head -n 1)
+        | jq -r --arg account "$account" \
+          '.[] | select(.account.login == $account) | .id' | head -n 1)
       test -n "$installation_id" && test "$installation_id" != null
 
       curl --fail --silent --show-error -X POST \
@@ -319,13 +331,19 @@ let
   # exits when its stdin pipe reaches EOF, which can disconnect before the
   # network-backed token minter has produced a response.
   githubAppCredentialClient = pkgs.writers.writePython3Bin "github-app-credential-client" { } ''
+    import os
     import socket
     import sys
+
+    account = os.environ.get("GITHUB_APP_ACCOUNT", "fkz")
+    if account not in {"fkz", "qelg"}:
+        raise SystemExit("unsupported GitHub App account")
 
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(70)
         client.connect("${githubCredentialSocket}")
-        client.sendall(b"get\n")
+        request = f"get\naccount={account}\n\n".encode("ascii")
+        client.sendall(request)
         client.shutdown(socket.SHUT_WR)
         chunks = []
         while True:
@@ -385,9 +403,35 @@ let
 
     def handle(connection):
         with connection:
-            request = connection.recv(16)
-            if request != b"get\n":
+            request = bytearray()
+            while b"\n\n" not in request and len(request) < 128:
+                chunk = connection.recv(128 - len(request))
+                if not chunk:
+                    break
+                request.extend(chunk)
+
+            try:
+                lines = request.decode("ascii").splitlines()
+            except UnicodeDecodeError:
+                lines = []
+            if not lines or lines[0] != "get":
                 connection.sendall(b"error=unsupported request\n\n")
+                return
+            fields = {}
+            for line in lines[1:]:
+                if not line or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key in fields:
+                    connection.sendall(b"error=unsupported request\n\n")
+                    return
+                fields[key] = value
+            if set(fields) - {"account"}:
+                connection.sendall(b"error=unsupported request\n\n")
+                return
+            account = fields.get("account", "fkz")
+            if account not in {"fkz", "qelg"}:
+                connection.sendall(b"error=unsupported account\n\n")
                 return
             try:
                 token_command = (
@@ -395,7 +439,7 @@ let
                     "/bin/github-app-token"
                 )
                 token = subprocess.run(
-                    [token_command],
+                    [token_command, account],
                     check=True,
                     capture_output=True,
                     text=True,
