@@ -592,10 +592,36 @@ in
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
       model = {
-        # GPT-5.6 Sol is the flagship Codex model tier (Sol > Terra > Luna).
+        # Keep the flagship Codex model for the main agent, where tool use and
+        # difficult coding or infrastructure work benefit from its quality.
         default = "gpt-5.6-sol";
         provider = "openai-codex";
         base_url = "https://chatgpt.com/backend-api/codex";
+      };
+
+      # Do not spend the ChatGPT/Codex quota on routine side tasks. OpenRouter
+      # Flash models are inexpensive and leave Sol available for the main agent.
+      auxiliary = {
+        title_generation = {
+          provider = "openrouter";
+          model = "google/gemini-2.5-flash-lite";
+          reasoning_effort = "none";
+        };
+        web_extract = {
+          provider = "openrouter";
+          model = "google/gemini-2.5-flash-lite";
+          reasoning_effort = "none";
+        };
+        compression = {
+          provider = "openrouter";
+          model = "google/gemini-2.5-flash";
+          reasoning_effort = "low";
+        };
+        vision = {
+          provider = "openrouter";
+          model = "google/gemini-2.5-flash";
+          reasoning_effort = "none";
+        };
       };
 
       terminal = {
