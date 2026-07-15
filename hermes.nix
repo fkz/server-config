@@ -1,6 +1,10 @@
 { config, pkgs, ... }:
 
 let
+  hermesApiServerPort = 8642;
+  hermesApiTailnetHttpsPort = 8643;
+  hermesApiSecretFile = "/var/lib/hermes/api-server.env";
+
   # dockerTools builds an OCI image directly from the Nix store (equivalent to
   # `FROM scratch`).  The package closures are intentionally available under
   # their immutable /nix/store paths; Hermes overlays that directory with the
@@ -647,6 +651,12 @@ in
     ];
 
     environment = {
+      # The API server itself stays on loopback. Tailscale Serve terminates
+      # Tailnet-only HTTPS on the externally consumed port below.
+      API_SERVER_ENABLED = "true";
+      API_SERVER_HOST = "127.0.0.1";
+      API_SERVER_PORT = toString hermesApiServerPort;
+
       MATRIX_HOMESERVER = "https://home.taila70923.ts.net:8443";
       MATRIX_USER_ID = "@hermes:home.taila70923.ts.net";
       MATRIX_ALLOWED_USERS = "@fabian:home.taila70923.ts.net";
@@ -806,9 +816,57 @@ in
     XDG_RUNTIME_DIR = "/run/hermes-podman";
     CONTAINERS_CONF = hermesPodmanContainerConf;
   };
+  systemd.services.hermes-agent.serviceConfig.EnvironmentFile = hermesApiSecretFile;
   # ProtectSystem=strict is retained; grant only Podman's dedicated transient
   # runtime directory rather than a broader part of /run.
   systemd.services.hermes-agent.serviceConfig.ReadWritePaths = [ "/run/hermes-podman" ];
+
+  # Generate the API bearer token once on the host. It never enters Git or the
+  # Nix store. To copy it into the Android app after deployment:
+  #   sudo sed -n 's/^API_SERVER_KEY=//p' /var/lib/hermes/api-server.env
+  systemd.services.hermes-api-secret = {
+    description = "Provision the Hermes API server bearer token";
+    before = [ "hermes-agent.service" ];
+    requiredBy = [ "hermes-agent.service" ];
+
+    path = [ pkgs.coreutils pkgs.gnugrep pkgs.openssl ];
+    script = ''
+      install -d -o root -g root -m 0755 /var/lib/hermes
+      if ! test -e ${hermesApiSecretFile}; then
+        umask 077
+        token=$(openssl rand -hex 32)
+        printf 'API_SERVER_KEY=%s\n' "$token" > ${hermesApiSecretFile}.new
+        mv ${hermesApiSecretFile}.new ${hermesApiSecretFile}
+      fi
+      if ! grep -Eq '^API_SERVER_KEY=[0-9a-f]{64}$' ${hermesApiSecretFile}; then
+        echo "hermes-api-secret: malformed existing secret file" >&2
+        exit 1
+      fi
+      chown root:root ${hermesApiSecretFile}
+      chmod 0600 ${hermesApiSecretFile}
+    '';
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+  };
+
+  # Android connects only over Tailnet HTTPS. Hermes remains bound to loopback;
+  # Tailscale terminates TLS and forwards to the API server on localhost.
+  systemd.services.hermes-api-tailnet-proxy = {
+    description = "Tailscale HTTPS proxy for the Hermes API server";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "tailscaled.service" "hermes-agent.service" ];
+    after = [ "tailscaled.service" "hermes-agent.service" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --bg --https=${toString hermesApiTailnetHttpsPort} http://127.0.0.1:${toString hermesApiServerPort}";
+      ExecStop = "${config.services.tailscale.package}/bin/tailscale serve --https=${toString hermesApiTailnetHttpsPort} off";
+    };
+  };
 
   # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
   # store targets of its /bin symlinks even if no other system path needs one.
