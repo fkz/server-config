@@ -533,15 +533,37 @@ let
   # Podman uses a per-user image store in rootless mode.  Load the declarative
   # image into Hermes' store before the service starts, without requiring a
   # privileged Podman API/socket.
+  hermesNixSandboxImageRef = "localhost/hermes-nix-sandbox:latest";
   loadHermesNixSandboxImage = pkgs.writeShellScript "load-hermes-nix-sandbox-image" ''
     set -eu
     # Rootless Podman needs the setuid NixOS wrappers (newuidmap/newgidmap),
     # not the unprivileged shadow binaries in the Nix store.
     export PATH="${config.security.wrapperDir}:$PATH"
-    # Reload on every activation: the fixed image tag is intentional for
-    # declarative configuration, and podman load replaces it with the Nix-built
-    # image from this generation.
+
+    # A successful `podman load` message alone does not prove that an existing
+    # mutable tag now points at the image from this generation. Untag the old
+    # image first; containers already created from it retain their immutable
+    # image ID until the ordered Hermes restart replaces them.
+    if ${pkgs.podman}/bin/podman image exists ${hermesNixSandboxImageRef}; then
+      ${pkgs.podman}/bin/podman untag ${hermesNixSandboxImageRef}
+    fi
     ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
+
+    # Docker image IDs are the SHA-256 digest of config.json. Verify that the
+    # mutable runtime tag resolves to the exact config embedded in the
+    # declarative archive; fail closed rather than starting Hermes on stale
+    # sandbox contents.
+    expected_id="sha256:$(${pkgs.gnutar}/bin/tar -xOzf \
+      ${hermesNixSandboxImage} ./config.json \
+      | ${pkgs.coreutils}/bin/sha256sum \
+      | ${pkgs.coreutils}/bin/cut -d ' ' -f 1)"
+    actual_id="$(${pkgs.podman}/bin/podman image inspect \
+      ${hermesNixSandboxImageRef} --format '{{.Id}}')"
+    if [ "$actual_id" != "$expected_id" ]; then
+      printf 'sandbox image verification failed: expected %s, got %s\n' \
+        "$expected_id" "$actual_id" >&2
+      exit 1
+    fi
   '';
 
   hermesPodmanContainerConf = pkgs.writeText "hermes-podman-containers.conf" ''
