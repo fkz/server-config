@@ -809,6 +809,11 @@ in
   # selected. Include NixOS' setuid mapping wrappers for rootless Podman; this
   # adds no rootful Podman socket capability.
   systemd.services.hermes-agent.path = [ rootlessPodmanWrapperPath pkgs.podman ];
+  # The image loader and Hermes are separate units. Loading a changed image tag
+  # does not by itself restart a long-running Hermes process, so it could keep
+  # tool containers created from the previous image. Couple the restart to the
+  # immutable image derivation; unit ordering runs the loader before Hermes.
+  systemd.services.hermes-agent.restartTriggers = [ hermesNixSandboxImage ];
 
   # Restrict the remote desktop backend to the tailnet. The NixOS firewall
   # still blocks port 9119 on the public network interfaces.
@@ -880,5 +885,9 @@ in
       pkgs.podman
       rootlessPodmanWrapperPath
     ];
+
+    # As with the messaging gateway, never retain tool containers from an older
+    # declarative sandbox image after activation.
+    restartTriggers = [ hermesNixSandboxImage ];
   };
 }
