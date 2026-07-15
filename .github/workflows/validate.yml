@@ -52,8 +52,19 @@ jobs:
       - name: Evaluate flake checks
         run: nix flake check --no-build
 
-      - name: Build complete NixOS system
-        run: nix build .#nixosConfigurations.nixos.config.system.build.toplevel --no-link
+      - name: Build complete NixOS system when not cached
+        run: |
+          build_info=$(nix eval --raw \
+            --apply "system: \"\${system.drvPath}\\t\${system.outPath}\"" \
+            .#nixosConfigurations.nixos.config.system.build.toplevel)
+          IFS=$'\t' read -r drv_path system_path <<<"$build_info"
+
+          if nix path-info --store https://server-config.cachix.org \
+              "$system_path" >/dev/null 2>&1; then
+            echo "System is already present in Cachix; skipping realization."
+          else
+            nix build "${drv_path}^out" --no-link
+          fi
 
   deploy:
     name: Trigger NixOS update over Tailscale
