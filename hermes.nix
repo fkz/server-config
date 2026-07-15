@@ -560,12 +560,15 @@ let
     # immutable runtime tag resolves to the exact config embedded in the
     # declarative archive; fail closed rather than starting Hermes on stale
     # sandbox contents.
-    expected_id="sha256:$(${pkgs.gnutar}/bin/tar -xOzf \
-      ${hermesNixSandboxImage} ./config.json \
+    expected_id="$(${pkgs.gzip}/bin/gzip -dc ${hermesNixSandboxImage} \
+      | ${pkgs.gnutar}/bin/tar -xOf - ./config.json \
       | ${pkgs.coreutils}/bin/sha256sum \
       | ${pkgs.coreutils}/bin/cut -d ' ' -f 1)"
     actual_id="$(${pkgs.podman}/bin/podman image inspect \
       ${hermesNixSandboxImageRef} --format '{{.Id}}')"
+    # Docker commonly includes the algorithm prefix; Podman 5.8 returns the
+    # same digest without it. Normalize both representations before comparing.
+    actual_id="''${actual_id#sha256:}"
     if [ "$actual_id" != "$expected_id" ]; then
       printf 'sandbox image verification failed: expected %s, got %s\n' \
         "$expected_id" "$actual_id" >&2
