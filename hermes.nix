@@ -506,6 +506,19 @@ let
     "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
     "NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
   ];
+  # Hash every declarative input that affects the resulting image. The schema
+  # number must be bumped if the archive/config construction itself changes in
+  # a way not represented below.
+  hermesNixSandboxImageTag = builtins.substring 0 32 (builtins.hashString
+    "sha256"
+    (builtins.toJSON {
+      schema = 1;
+      root = toString hermesNixSandboxRoot;
+      env = hermesNixSandboxEnv;
+      workingDir = "/workspace";
+    }));
+  hermesNixSandboxImageRef =
+    "localhost/hermes-nix-sandbox:${hermesNixSandboxImageTag}";
   # dockerTools.buildImage deliberately adds the whole Nix closure of a layer
   # to a docker archive. That is unsuitable here: the runtime already bind
   # mounts /nix/store. Emit the small Docker-archive format directly, preserving
@@ -524,33 +537,27 @@ let
     {"architecture":"amd64","config":{"Env":${builtins.toJSON hermesNixSandboxEnv},"WorkingDir":"/workspace"},"created":"1970-01-01T00:00:01Z","os":"linux","rootfs":{"diff_ids":["sha256:$diff_id"],"type":"layers"}}
     EOF
     cat > archive/manifest.json <<'EOF'
-    [{"Config":"config.json","RepoTags":["hermes-nix-sandbox:latest"],"Layers":["layer/layer.tar"]}]
+    [{"Config":"config.json","RepoTags":["hermes-nix-sandbox:${hermesNixSandboxImageTag}"],"Layers":["layer/layer.tar"]}]
     EOF
     tar -C archive --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
       -cf - . | gzip -n > "$out"
   '';
 
-  # Podman uses a per-user image store in rootless mode.  Load the declarative
+  # Podman uses a per-user image store in rootless mode. Load the declarative
   # image into Hermes' store before the service starts, without requiring a
   # privileged Podman API/socket.
-  hermesNixSandboxImageRef = "localhost/hermes-nix-sandbox:latest";
   loadHermesNixSandboxImage = pkgs.writeShellScript "load-hermes-nix-sandbox-image" ''
     set -eu
     # Rootless Podman needs the setuid NixOS wrappers (newuidmap/newgidmap),
     # not the unprivileged shadow binaries in the Nix store.
     export PATH="${config.security.wrapperDir}:$PATH"
 
-    # A successful `podman load` message alone does not prove that an existing
-    # mutable tag now points at the image from this generation. Untag the old
-    # image first; containers already created from it retain their immutable
-    # image ID until the ordered Hermes restart replaces them.
-    if ${pkgs.podman}/bin/podman image exists ${hermesNixSandboxImageRef}; then
-      ${pkgs.podman}/bin/podman untag ${hermesNixSandboxImageRef}
-    fi
+    # The content-addressed tag is unique to this Nix-built root, so loading it
+    # never relies on replacing a mutable `latest` reference.
     ${pkgs.podman}/bin/podman load --quiet --input ${hermesNixSandboxImage}
 
     # Docker image IDs are the SHA-256 digest of config.json. Verify that the
-    # mutable runtime tag resolves to the exact config embedded in the
+    # immutable runtime tag resolves to the exact config embedded in the
     # declarative archive; fail closed rather than starting Hermes on stale
     # sandbox contents.
     expected_id="sha256:$(${pkgs.gnutar}/bin/tar -xOzf \
@@ -659,7 +666,7 @@ in
         # then `podman`.  Rootless Podman is the actual OCI runtime here.
         backend = "docker";
         timeout = 180;
-        docker_image = "hermes-nix-sandbox:latest";
+        docker_image = hermesNixSandboxImageRef;
         docker_auto_mount_cwd = false;
         # Direct HTTPS is needed for git clone/push and GitHub CLI requests.
         # Authentication is still brokered through a local Unix socket below.
