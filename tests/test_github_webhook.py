@@ -85,6 +85,18 @@ def test_receiver_file_does_not_leak_secret_path() -> None:
     assert "test-secret-value" not in text
 
 
+def test_load_secret_uses_systemd_credentials_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receiver = load_receiver()
+    credential = tmp_path / "github-webhook-secret"
+    credential.write_bytes(SECRET + b"\n")
+    monkeypatch.setenv("CREDENTIALS_DIRECTORY", str(tmp_path))
+
+    assert receiver.load_secret() == SECRET
+
+
 def test_verify_signature_accepts_valid_sha256() -> None:
     receiver = load_receiver()
     body = PUSH_MAIN_PAYLOAD

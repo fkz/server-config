@@ -26,6 +26,10 @@ in {
       User = "root";
       Group = "root";
       ExecStart = "${receiver}/bin/github-webhook-receiver";
+      # PID 1 copies the host secret into the service credential directory
+      # before dropping the receiver's capabilities. This keeps the Hermes
+      # secrets directory private without granting CAP_DAC_OVERRIDE.
+      LoadCredential = [ "github-webhook-secret:${secretPath}" ];
       Restart = "on-failure";
       RestartSec = 2;
       # The receiver is a tiny event loop; bound memory protects the host.

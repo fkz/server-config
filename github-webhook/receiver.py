@@ -20,11 +20,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import socket
 import subprocess
 import sys
 
-SECRET_PATH = "/var/lib/hermes/.hermes/secrets/github-webhook-secret"
+SECRET_NAME = "github-webhook-secret"
+FALLBACK_SECRET_PATH = (
+    "/var/lib/hermes/.hermes/secrets/github-webhook-secret"
+)
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8081
 MAX_BODY_BYTES = 1_048_576  # 1 MiB; GitHub push payloads stay well below this
@@ -39,8 +43,13 @@ REQUEST_TIMEOUT = 10
 
 
 def load_secret() -> bytes | None:
+    credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    if credentials_directory:
+        secret_path = os.path.join(credentials_directory, SECRET_NAME)
+    else:
+        secret_path = FALLBACK_SECRET_PATH
     try:
-        with open(SECRET_PATH, "rb") as fh:
+        with open(secret_path, "rb") as fh:
             return fh.read().strip()
     except OSError:
         return None
