@@ -4,6 +4,8 @@ let
   hermesApiServerPort = 8642;
   hermesApiTailnetHttpsPort = 8643;
   hermesApiSecretFile = "/var/lib/hermes/api-server.env";
+  hermesChatKanbanWorkspaces =
+    "/var/lib/hermes/.hermes/kanban/boards/hermes-chat/workspaces";
 
   # dockerTools builds an OCI image directly from the Nix store (equivalent to
   # `FROM scratch`).  The package closures are intentionally available under
@@ -749,6 +751,11 @@ in
           # The broker gives the container a short-lived installation token on
           # demand. The GitHub App private key and Hermes secrets stay host-only.
           "${githubCredentialSocket}:${githubCredentialSocket}:rw"
+
+          # Kanban scratch tasks use host paths below this directory as their
+          # working directory. Mount only the task workspaces, not the board
+          # database or the rest of Hermes' state and secrets.
+          "${hermesChatKanbanWorkspaces}:${hermesChatKanbanWorkspaces}:rw"
         ];
       };
 
