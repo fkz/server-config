@@ -1,0 +1,194 @@
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -40,6 +40,7 @@
+ import socket as _socket
+ import re
+ import sqlite3
++import tempfile
+ import time
+ import uuid
+ from pathlib import Path
+@@ -92,6 +93,8 @@
+ DEFAULT_PORT = 8642
+ MAX_STORED_RESPONSES = 100
+ MAX_REQUEST_BYTES = 10_000_000  # 10 MB — accommodates long agent conversations with tool calls
++MAX_AUDIO_BYTES = 9_000_000  # Keep multipart uploads below the global request cap
++AUDIO_EXTENSIONS = {".aac", ".m4a", ".ogg"}
+ CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
+ MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
+ MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
+@@ -105,6 +108,22 @@
+         return default
+ 
+ 
++def _valid_audio_signature(path: str, extension: str) -> bool:
++    """Validate the small set of containers accepted by the STT endpoint."""
++    try:
++        with open(path, "rb") as handle:
++            header = handle.read(12)
++    except OSError:
++        return False
++    if extension == ".m4a":
++        return len(header) >= 8 and header[4:8] == b"ftyp"
++    if extension == ".ogg":
++        return header.startswith(b"OggS")
++    if extension == ".aac":
++        return len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xF6) == 0xF0
++    return False
++
++
+ _TRUE_REQUEST_BOOL_STRINGS = frozenset({"1", "true", "yes", "on"})
+ _FALSE_REQUEST_BOOL_STRINGS = frozenset({"0", "false", "no", "off"})
+ 
+@@ -900,6 +919,8 @@
+         # Number of in-flight runs on the non-streaming chat/responses paths
+         # (the /v1/runs path tracks its own in-flight set via _run_streams).
+         self._inflight_agent_runs: int = 0
++        # Local Whisper is deliberately serialized to bound CPU and memory.
++        self._audio_transcription_lock = asyncio.Lock()
+ 
+     @staticmethod
+     def _parse_cors_origins(value: Any) -> tuple[str, ...]:
+@@ -1503,7 +1524,7 @@
+                 "jobs_admin": False,
+                 "memory_write_api": False,
+                 "skills_api": True,
+-                "audio_api": False,
++                "audio_api": True,
+                 "realtime_voice": False,
+                 "session_continuity_header": "X-Hermes-Session-Id",
+                 "session_key_header": "X-Hermes-Session-Key",
+@@ -1522,6 +1543,10 @@
+                 "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"},
+                 "skills": {"method": "GET", "path": "/v1/skills"},
+                 "toolsets": {"method": "GET", "path": "/v1/toolsets"},
++                "audio_transcriptions": {
++                    "method": "POST",
++                    "path": "/v1/audio/transcriptions",
++                },
+                 "sessions": {"method": "GET", "path": "/api/sessions"},
+                 "session_create": {"method": "POST", "path": "/api/sessions"},
+                 "session": {"method": "GET", "path": "/api/sessions/{session_id}"},
+@@ -1534,6 +1559,112 @@
+             },
+         })
+ 
++    async def _handle_audio_transcription(
++        self, request: "web.Request"
++    ) -> "web.Response":
++        """POST /v1/audio/transcriptions — transcribe one bounded audio file."""
++        if not self._api_key:
++            return web.json_response(
++                _openai_error("Authentication is not configured"), status=401
++            )
++        auth_err = self._check_auth(request)
++        if auth_err:
++            return auth_err
++        if not request.content_type.startswith("multipart/"):
++            return web.json_response(
++                _openai_error("Expected multipart/form-data"), status=415
++            )
++        if self._audio_transcription_lock.locked():
++            return web.json_response(
++                _openai_error("Audio transcription is busy"),
++                status=429,
++                headers={"Retry-After": "5"},
++            )
++
++        temp_path = None
++        try:
++            reader = await request.multipart()
++            part = await reader.next()
++            if part is None or part.name != "file" or not part.filename:
++                return web.json_response(
++                    _openai_error("A single audio file is required"), status=400
++                )
++            extension = Path(part.filename).suffix.lower()
++            if extension not in AUDIO_EXTENSIONS:
++                return web.json_response(
++                    _openai_error("Unsupported audio format"), status=400
++                )
++
++            with tempfile.NamedTemporaryFile(
++                prefix="hermes-audio-",
++                suffix=extension,
++                delete=False,
++            ) as handle:
++                temp_path = handle.name
++                os.chmod(temp_path, 0o600)
++                size = 0
++                while True:
++                    chunk = await part.read_chunk(size=64 * 1024)
++                    if not chunk:
++                        break
++                    size += len(chunk)
++                    if size > MAX_AUDIO_BYTES:
++                        return web.json_response(
++                            _openai_error("Audio file is too large"), status=413
++                        )
++                    handle.write(chunk)
++
++            if size == 0:
++                return web.json_response(
++                    _openai_error("Audio file is empty"), status=400
++                )
++            if await reader.next() is not None:
++                return web.json_response(
++                    _openai_error("Only one audio file is accepted"), status=400
++                )
++            if not _valid_audio_signature(temp_path, extension):
++                return web.json_response(
++                    _openai_error("Invalid audio file"), status=400
++                )
++
++            async with self._audio_transcription_lock:
++                from tools.transcription_tools import transcribe_audio
++
++                result = await asyncio.to_thread(transcribe_audio, temp_path)
++            if not isinstance(result, dict) or not result.get("success"):
++                return web.json_response(
++                    _openai_error(
++                        "Audio transcription is unavailable",
++                        err_type="server_error",
++                    ),
++                    status=503,
++                )
++            transcript = str(result.get("transcript", "")).strip()
++            if not transcript:
++                return web.json_response(
++                    _openai_error(
++                        "Audio transcription returned no text",
++                        err_type="server_error",
++                    ),
++                    status=503,
++                )
++            return web.json_response({"text": transcript})
++        except Exception:
++            logger.warning("Audio transcription request failed")
++            return web.json_response(
++                _openai_error(
++                    "Audio transcription is unavailable",
++                    err_type="server_error",
++                ),
++                status=503,
++            )
++        finally:
++            if temp_path:
++                try:
++                    os.unlink(temp_path)
++                except FileNotFoundError:
++                    pass
++
+     async def _handle_skills(self, request: "web.Request") -> "web.Response":
+         """GET /v1/skills — list installed skills visible to the API-server agent.
+ 
+@@ -4773,6 +4904,9 @@
+             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
+             self._app.router.add_get("/v1/skills", self._handle_skills)
+             self._app.router.add_get("/v1/toolsets", self._handle_toolsets)
++            self._app.router.add_post(
++                "/v1/audio/transcriptions", self._handle_audio_transcription
++            )
+             # Session/client control surface (thin wrappers over SessionDB + _run_agent)
+             self._app.router.add_get("/api/sessions", self._handle_list_sessions)
+             self._app.router.add_post("/api/sessions", self._handle_create_session)

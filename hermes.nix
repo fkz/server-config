@@ -1,9 +1,32 @@
-{ config, pkgs, ... }:
+{ config, inputs, pkgs, ... }:
 
 let
   hermesApiServerPort = 8642;
   hermesApiTailnetHttpsPort = 8643;
   hermesApiSecretFile = "/var/lib/hermes/api-server.env";
+
+  baseHermes =
+    inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  patchedHermesSource = pkgs.applyPatches {
+    name = "hermes-agent-audio-transcriptions-source";
+    src = inputs.hermes-agent;
+    patches = [ ./patches/hermes-audio-transcriptions.patch ];
+  };
+  patchedHermesPython = pkgs.runCommand
+    "hermes-agent-audio-transcriptions-python"
+    { }
+    ''
+      mkdir -p "$out"
+      cp -R ${patchedHermesSource}/gateway "$out/gateway"
+    '';
+  hermesWithAudioTranscriptions = baseHermes.overrideAttrs (old: {
+    postFixup = (old.postFixup or "") + ''
+      for program in hermes hermes-agent hermes-acp; do
+        wrapProgram "$out/bin/$program" \
+          --prefix PYTHONPATH : ${patchedHermesPython}
+      done
+    '';
+  });
 
   # dockerTools builds an OCI image directly from the Nix store (equivalent to
   # `FROM scratch`).  The package closures are intentionally available under
@@ -635,6 +658,7 @@ in
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
   services.hermes-agent = {
     enable = true;
+    package = hermesWithAudioTranscriptions;
     addToSystemPackages = true;
     extraPlugins = [ nixosUpdatePlugin ];
 

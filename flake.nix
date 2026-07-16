@@ -11,6 +11,7 @@
   outputs = inputs@{ self, nixpkgs, hermes-agent, ... }: {
     # NOTE: 'nixos' is the default hostname
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+      specialArgs = { inherit inputs; };
       modules = [
         hermes-agent.nixosModules.default
         ./configuration.nix
