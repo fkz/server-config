@@ -731,7 +731,10 @@ in
         # Direct HTTPS is needed for git clone/push and GitHub CLI requests.
         # Authentication is still brokered through a local Unix socket below.
         docker_network = true;
-        docker_persistent_filesystem = false;
+        # Keep /root, /home, and /workspace ephemeral. The former
+        # docker_persistent_filesystem key was ignored by Hermes, leaving the
+        # default-on persistent sandbox to accumulate caches on the host.
+        container_persistent = false;
         # Recreate the execution container after an activation so a refreshed
         # declarative image is actually used rather than a retained `latest`.
         docker_persist_across_processes = false;
