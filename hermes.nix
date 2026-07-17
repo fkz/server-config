@@ -724,6 +724,7 @@ in
         # The Docker backend also supports Podman: Hermes probes `docker` and
         # then `podman`.  Rootless Podman is the actual OCI runtime here.
         backend = "docker";
+        cwd = "/workspace";
         timeout = 180;
         docker_image = hermesNixSandboxImageRef;
         docker_auto_mount_cwd = false;
