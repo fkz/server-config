@@ -730,7 +730,7 @@ in
         # Direct HTTPS is needed for git clone/push and GitHub CLI requests.
         # Authentication is still brokered through a local Unix socket below.
         docker_network = true;
-        container_persistent = true;
+         container_persistent = true;
         # Recreate the execution container after an activation so a refreshed
         # declarative image is actually used rather than a retained `latest`.
         docker_persist_across_processes = false;
@@ -992,6 +992,7 @@ in
       HOME = "/var/lib/hermes";
       HERMES_HOME = "/var/lib/hermes/.hermes";
       HERMES_MANAGED = "true";
+      MESSAGING_CWD = "/var/lib/hermes/workspace";
       XDG_RUNTIME_DIR = "/run/hermes-podman";
       CONTAINERS_CONF = hermesPodmanContainerConf;
     };
