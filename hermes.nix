@@ -543,6 +543,12 @@ let
     cd "$out"
     ln -s /nix/store "$out/.nix-store"
     ${hermesNixSandboxLinkCommands}
+    # Podman resolves the image entrypoint before bind mounts such as
+    # /nix/store are active. Keep one real static binary in the layer so a
+    # fresh symlink-only image can start; normal tool commands run only after
+    # the mounts are available.
+    cp ${pkgs.pkgsStatic.busybox}/bin/busybox "$out/bin/busybox"
+    chmod 0555 "$out/bin/busybox"
     gitconfig_target="${hermesNixSandboxEtc}"
     ln -s "/.nix-store/''${gitconfig_target#/nix/store/}/etc/gitconfig" "$out/etc/gitconfig"
   '';
@@ -562,7 +568,7 @@ let
   hermesNixSandboxImageTag = builtins.substring 0 32 (builtins.hashString
     "sha256"
     (builtins.toJSON {
-      schema = 1;
+      schema = 2;
       root = toString hermesNixSandboxRoot;
       env = hermesNixSandboxEnv;
       workingDir = "/workspace";
@@ -584,7 +590,7 @@ let
       -cf archive/layer/layer.tar .
     diff_id="$(sha256sum archive/layer/layer.tar | cut -d ' ' -f 1)"
     cat > archive/config.json <<EOF
-    {"architecture":"amd64","config":{"Env":${builtins.toJSON hermesNixSandboxEnv},"WorkingDir":"/workspace"},"created":"1970-01-01T00:00:01Z","os":"linux","rootfs":{"diff_ids":["sha256:$diff_id"],"type":"layers"}}
+    {"architecture":"amd64","config":{"Entrypoint":["/bin/busybox"],"Env":${builtins.toJSON hermesNixSandboxEnv},"WorkingDir":"/workspace"},"created":"1970-01-01T00:00:01Z","os":"linux","rootfs":{"diff_ids":["sha256:$diff_id"],"type":"layers"}}
     EOF
     cat > archive/manifest.json <<'EOF'
     [{"Config":"config.json","RepoTags":["hermes-nix-sandbox:${hermesNixSandboxImageTag}"],"Layers":["layer/layer.tar"]}]
@@ -624,6 +630,12 @@ let
         "$expected_id" "$actual_id" >&2
       exit 1
     fi
+
+    # Prove that Podman can resolve and execute the entrypoint before any of
+    # Hermes' /nix/store bind mounts exist. This catches symlink-only images
+    # that load successfully but cannot create a fresh tool container.
+    ${pkgs.podman}/bin/podman run --quiet --rm \
+      ${hermesNixSandboxImageRef} true
   '';
 
   hermesPodmanContainerConf = pkgs.writeText "hermes-podman-containers.conf" ''
