@@ -631,6 +631,32 @@ let
     cgroup_manager = "cgroupfs"
     events_logger = "file"
   '';
+
+  # `hermes gateway` applies terminal.* from config.yaml to the TERMINAL_*
+  # environment consumed by terminal_tool. The dashboard's in-process
+  # /api/ws gateway currently skips that bridge, so run the same canonical
+  # helper before replacing this launcher with the normal dashboard command.
+  hermesDashboard = pkgs.writeShellScript "hermes-dashboard" ''
+    exec ${config.services.hermes-agent.package.hermesVenv}/bin/python3 -c '
+    import os
+
+    from hermes_cli.config import apply_terminal_config_to_env
+
+    apply_terminal_config_to_env()
+    os.execv(
+        "${config.services.hermes-agent.package}/bin/hermes",
+        [
+            "hermes",
+            "dashboard",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9119",
+            "--no-open",
+        ],
+    )
+    '
+  '';
 in
 {
   # Hermes runs as a dedicated, unprivileged system user and persists its
@@ -724,6 +750,7 @@ in
         # The Docker backend also supports Podman: Hermes probes `docker` and
         # then `podman`.  Rootless Podman is the actual OCI runtime here.
         backend = "docker";
+        cwd = "/workspace";
         timeout = 180;
         docker_image = hermesNixSandboxImageRef;
         docker_auto_mount_cwd = false;
@@ -1002,7 +1029,7 @@ in
       Group = "hermes";
       WorkingDirectory = "/var/lib/hermes/workspace";
       EnvironmentFile = "/var/lib/hermes/remote-gateway.env";
-      ExecStart = "${config.services.hermes-agent.package}/bin/hermes dashboard --host 0.0.0.0 --port 9119 --no-open";
+      ExecStart = hermesDashboard;
       Restart = "always";
       RestartSec = 5;
       UMask = "0007";
