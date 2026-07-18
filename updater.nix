@@ -3,22 +3,8 @@
 let
   updateNixosApp = pkgs.writeShellApplication {
     name = "nixos-update";
-    runtimeInputs = [ pkgs.git pkgs.nixos-rebuild ];  # Optional: ensure deps are present
-    text = ''
-      cd /etc/nixos
-
-      old_commit=$(git rev-parse HEAD)
-      git fetch origin
-      remote_commit=$(git rev-parse '@{u}')
-
-      if [ "$old_commit" != "$remote_commit" ]; then
-          echo "New commit detected. Updating..."
-          git pull --ff-only
-          nixos-rebuild switch
-      else
-          echo "No update needed."
-      fi
-    '';
+    runtimeInputs = [ pkgs.coreutils pkgs.git pkgs.nixos-rebuild ];
+    text = builtins.readFile ./scripts/nixos-update.sh;
   };
 in {
   environment.systemPackages = [ updateNixosApp ];
