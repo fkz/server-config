@@ -724,14 +724,13 @@ in
         # The Docker backend also supports Podman: Hermes probes `docker` and
         # then `podman`.  Rootless Podman is the actual OCI runtime here.
         backend = "docker";
-        cwd = "/workspace";
         timeout = 180;
         docker_image = hermesNixSandboxImageRef;
         docker_auto_mount_cwd = false;
         # Direct HTTPS is needed for git clone/push and GitHub CLI requests.
         # Authentication is still brokered through a local Unix socket below.
         docker_network = true;
-        docker_persistent_filesystem = false;
+         container_persistent = true;
         # Recreate the execution container after an activation so a refreshed
         # declarative image is actually used rather than a retained `latest`.
         docker_persist_across_processes = false;
@@ -756,7 +755,7 @@ in
           # Kanban scratch tasks use host paths below this directory as their
           # working directory. Mount only the task workspaces, not the board
           # database or the rest of Hermes' state and secrets.
-          "${hermesChatKanbanWorkspaces}:${hermesChatKanbanWorkspaces}:rw"
+          # "${hermesChatKanbanWorkspaces}:${hermesChatKanbanWorkspaces}:rw"
         ];
       };
 
