@@ -1,6 +1,25 @@
-{ config, pkgs, ... }:
+{ config, pkgs, hermes-agent, ... }:
 
 let
+  baseHermes = hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  patchedHermesSource = pkgs.applyPatches {
+    name = "hermes-agent-session-last-active-source";
+    src = hermes-agent;
+    patches = [ ./patches/hermes-session-last-active.patch ];
+  };
+  patchedHermesPython = pkgs.runCommand "hermes-agent-session-last-active-python" { } ''
+    mkdir -p "$out"
+    cp -R ${patchedHermesSource}/tui_gateway "$out/tui_gateway"
+  '';
+  hermesWithSessionLastActive = baseHermes.overrideAttrs (old: {
+    postFixup = (old.postFixup or "") + ''
+      for program in hermes hermes-agent hermes-acp; do
+        wrapProgram "$out/bin/$program" \
+          --prefix PYTHONPATH : ${patchedHermesPython}
+      done
+    '';
+  });
+
   hermesApiServerPort = 8642;
   hermesApiTailnetHttpsPort = 8643;
   hermesApiSecretFile = "/var/lib/hermes/api-server.env";
@@ -663,6 +682,7 @@ in
   # sessions, skills, memory, and gateway state in /var/lib/hermes.
   services.hermes-agent = {
     enable = true;
+    package = hermesWithSessionLastActive;
     addToSystemPackages = true;
     extraPlugins = [ nixosUpdatePlugin ];
 

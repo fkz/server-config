@@ -1,0 +1,12 @@
+diff --git a/tui_gateway/server.py b/tui_gateway/server.py
+index 9a9e8cd..d58a44d 100644
+--- a/tui_gateway/server.py
++++ b/tui_gateway/server.py
+@@ -5801,6 +5801,7 @@ def _(rid, params: dict) -> dict:
+                         "title": s.get("title") or "",
+                         "preview": s.get("preview") or "",
+                         "started_at": s.get("started_at") or 0,
++                        "last_active": s.get("last_active") or s.get("started_at") or 0,
+                         "message_count": s.get("message_count") or 0,
+                         "source": s.get("source") or "",
+                     }
