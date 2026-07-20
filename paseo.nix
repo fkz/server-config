@@ -1,13 +1,22 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 let
   paseoPort = 6767;
   tailnetHost = "home.taila70923.ts.net";
-  passwordFile = "/var/lib/paseo/password.env";
+  passwordFile = "/var/lib/hermes/paseo-password.env";
+  legacyPasswordFile = "/var/lib/paseo/password.env";
 in
 {
   services.paseo = {
     enable = true;
+
+    # Paseo launches Hermes through ACP. Run both processes under the same
+    # unprivileged account so the child can use Hermes' managed configuration,
+    # OAuth credentials, memories, skills, workspaces, and Podman state.
+    user = "hermes";
+    group = "hermes";
+    dataDir = "/var/lib/hermes/.paseo";
+    inheritUserEnvironment = true;
 
     # Paseo cannot bind to an interface name. Listen on all addresses, but open
     # its port exclusively on tailscale0 below; the public and LAN interfaces
@@ -26,6 +35,28 @@ in
         "http://home:${toString paseoPort}"
         "http://${tailnetHost}:${toString paseoPort}"
       ];
+
+      agents.providers.hermes = {
+        extends = "acp";
+        label = "Hermes";
+        description = "Nous Research self-improving AI agent";
+        command = [
+          "${config.services.hermes-agent.package}/bin/hermes"
+          "acp"
+        ];
+        env = {
+          HOME = "/var/lib/hermes";
+          HERMES_HOME = "/var/lib/hermes/.hermes";
+          HERMES_MANAGED = "true";
+        };
+      };
+    };
+
+    environment = {
+      HOME = "/var/lib/hermes";
+      HERMES_HOME = "/var/lib/hermes/.hermes";
+      HERMES_MANAGED = "true";
+      MESSAGING_CWD = "/var/lib/hermes/workspace";
     };
   };
 
@@ -36,7 +67,7 @@ in
 
   # Generate a stable, host-local password on first start. The secret never
   # enters Git or the Nix store. Retrieve it for the Android app with:
-  #   sudo sed -n 's/^PASEO_PASSWORD=//p' /var/lib/paseo/password.env
+  #   sudo sed -n 's/^PASEO_PASSWORD=//p' /var/lib/hermes/paseo-password.env
   systemd.services.paseo-password = {
     description = "Provision the Paseo daemon password";
     before = [ "paseo.service" ];
@@ -50,10 +81,14 @@ in
 
     script = ''
       if ! test -s ${passwordFile}; then
-        password="$(${pkgs.openssl}/bin/openssl rand -hex 24)"
-        printf 'PASEO_PASSWORD=%s\n' "$password" > ${passwordFile}.tmp
-        chmod 0600 ${passwordFile}.tmp
-        mv ${passwordFile}.tmp ${passwordFile}
+        if test -s ${legacyPasswordFile}; then
+          install -m 0600 ${legacyPasswordFile} ${passwordFile}
+        else
+          password="$(${pkgs.openssl}/bin/openssl rand -hex 24)"
+          printf 'PASEO_PASSWORD=%s\n' "$password" > ${passwordFile}.tmp
+          chmod 0600 ${passwordFile}.tmp
+          mv ${passwordFile}.tmp ${passwordFile}
+        fi
       fi
     '';
   };
@@ -61,6 +96,9 @@ in
   systemd.services.paseo = {
     after = [ "tailscaled.service" ];
     wants = [ "tailscaled.service" ];
-    serviceConfig.EnvironmentFile = passwordFile;
+    serviceConfig = {
+      EnvironmentFile = passwordFile;
+      WorkingDirectory = "/var/lib/hermes/workspace";
+    };
   };
 }
