@@ -15,6 +15,7 @@
       ./hermes.nix
       ./hermes-skills-audit.nix
       ./matrix.nix
+      ./paseo.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
