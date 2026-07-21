@@ -706,7 +706,7 @@ in
       # Advertise explicit, authenticated model routes through GET /v1/models.
       # API clients select one of these aliases in POST /v1/runs; the route is
       # request-scoped and does not change Hermes' global default model.
-      platforms.api_server.model_routes = {
+      platforms.api_server.extra.model_routes = {
         "anthropic/claude-fable-5" = {
           model = "anthropic/claude-fable-5";
           provider = "openrouter";
