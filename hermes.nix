@@ -703,6 +703,180 @@ in
     settings = {
       plugins.enabled = [ "nixos-update" ];
 
+      # Advertise explicit, authenticated model routes through GET /v1/models.
+      # API clients select one of these aliases in POST /v1/runs; the route is
+      # request-scoped and does not change Hermes' global default model.
+      platforms.api_server.model_routes = {
+        "anthropic/claude-fable-5" = {
+          model = "anthropic/claude-fable-5";
+          provider = "openrouter";
+        };
+        "anthropic/claude-opus-4.8" = {
+          model = "anthropic/claude-opus-4.8";
+          provider = "openrouter";
+        };
+        "anthropic/claude-opus-4.8-fast" = {
+          model = "anthropic/claude-opus-4.8-fast";
+          provider = "openrouter";
+        };
+        "anthropic/claude-sonnet-5" = {
+          model = "anthropic/claude-sonnet-5";
+          provider = "openrouter";
+        };
+        "anthropic/claude-haiku-4.5" = {
+          model = "anthropic/claude-haiku-4.5";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-sol" = {
+          model = "openai/gpt-5.6-sol";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-sol-pro" = {
+          model = "openai/gpt-5.6-sol-pro";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-terra" = {
+          model = "openai/gpt-5.6-terra";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-terra-pro" = {
+          model = "openai/gpt-5.6-terra-pro";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-luna" = {
+          model = "openai/gpt-5.6-luna";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.6-luna-pro" = {
+          model = "openai/gpt-5.6-luna-pro";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.5" = {
+          model = "openai/gpt-5.5";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.5-pro" = {
+          model = "openai/gpt-5.5-pro";
+          provider = "openrouter";
+        };
+        "openai/gpt-5.4-mini" = {
+          model = "openai/gpt-5.4-mini";
+          provider = "openrouter";
+        };
+        "google/gemini-3.1-pro-preview" = {
+          model = "google/gemini-3.1-pro-preview";
+          provider = "openrouter";
+        };
+        "google/gemini-3.5-flash" = {
+          model = "google/gemini-3.5-flash";
+          provider = "openrouter";
+        };
+        "x-ai/grok-4.5" = {
+          model = "x-ai/grok-4.5";
+          provider = "openrouter";
+        };
+        "deepseek/deepseek-v4-pro" = {
+          model = "deepseek/deepseek-v4-pro";
+          provider = "openrouter";
+        };
+        "deepseek/deepseek-v4-flash" = {
+          model = "deepseek/deepseek-v4-flash";
+          provider = "openrouter";
+        };
+        "qwen/qwen3.7-max" = {
+          model = "qwen/qwen3.7-max";
+          provider = "openrouter";
+        };
+        "qwen/qwen3.7-plus" = {
+          model = "qwen/qwen3.7-plus";
+          provider = "openrouter";
+        };
+        "qwen/qwen3.6-35b-a3b" = {
+          model = "qwen/qwen3.6-35b-a3b";
+          provider = "openrouter";
+        };
+        "moonshotai/kimi-k3" = {
+          model = "moonshotai/kimi-k3";
+          provider = "openrouter";
+        };
+        "minimax/minimax-m3" = {
+          model = "minimax/minimax-m3";
+          provider = "openrouter";
+        };
+        "z-ai/glm-5.2" = {
+          model = "z-ai/glm-5.2";
+          provider = "openrouter";
+        };
+        "z-ai/glm-5.1" = {
+          model = "z-ai/glm-5.1";
+          provider = "openrouter";
+        };
+        "xiaomi/mimo-v2.5-pro" = {
+          model = "xiaomi/mimo-v2.5-pro";
+          provider = "openrouter";
+        };
+        "tencent/hy3" = {
+          model = "tencent/hy3";
+          provider = "openrouter";
+        };
+        "stepfun/step-3.7-flash" = {
+          model = "stepfun/step-3.7-flash";
+          provider = "openrouter";
+        };
+        "nvidia/nemotron-3-super-120b-a12b" = {
+          model = "nvidia/nemotron-3-super-120b-a12b";
+          provider = "openrouter";
+        };
+        "sakana/fugu-ultra" = {
+          model = "sakana/fugu-ultra";
+          provider = "openrouter";
+        };
+        "poolside/laguna-m.1:free" = {
+          model = "poolside/laguna-m.1:free";
+          provider = "openrouter";
+        };
+        "tencent/hy3:free" = {
+          model = "tencent/hy3:free";
+          provider = "openrouter";
+        };
+        "nvidia/nemotron-3-super-120b-a12b:free" = {
+          model = "nvidia/nemotron-3-super-120b-a12b:free";
+          provider = "openrouter";
+        };
+        "nvidia/nemotron-3-ultra-550b-a55b:free" = {
+          model = "nvidia/nemotron-3-ultra-550b-a55b:free";
+          provider = "openrouter";
+        };
+        "gpt-5.6-sol" = {
+          model = "gpt-5.6-sol";
+          provider = "openai-codex";
+        };
+        "gpt-5.6-terra" = {
+          model = "gpt-5.6-terra";
+          provider = "openai-codex";
+        };
+        "gpt-5.6-luna" = {
+          model = "gpt-5.6-luna";
+          provider = "openai-codex";
+        };
+        "gpt-5.5" = {
+          model = "gpt-5.5";
+          provider = "openai-codex";
+        };
+        "gpt-5.6-sol-pro" = {
+          model = "gpt-5.6-sol-pro";
+          provider = "openai-codex";
+        };
+        "gpt-5.6-terra-pro" = {
+          model = "gpt-5.6-terra-pro";
+          provider = "openai-codex";
+        };
+        "gpt-5.6-luna-pro" = {
+          model = "gpt-5.6-luna-pro";
+          provider = "openai-codex";
+        };
+      };
+
       # OpenAI Codex OAuth is used instead of an API key. The authenticated
       # credential is stored outside the repository in Hermes' state directory.
       model = {
