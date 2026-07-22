@@ -365,29 +365,125 @@ let
       get) ;;
       *) exit 0 ;;
     esac
+    account="''${GITHUB_APP_ACCOUNT:-}"
+    path=
     # Drain git's credential request, but only up to the blank separator line.
-    # git keeps the request pipe open until it reads our reply, so reading to
-    # EOF here would deadlock: the helper would block forever waiting for git
-    # to close stdin, while git blocks waiting for the helper's reply. Reading
-    # just the request headers is sufficient; the broker ignores them anyway.
+    # With useHttpPath enabled, the path starts with the repository owner. This
+    # lets ordinary `git push` select the matching App installation without an
+    # environment override.
     while IFS= read -r line; do
       [ -z "$line" ] && break
+      case "$line" in
+        path=*) path="''${line#path=}" ;;
+      esac
     done
+    if [ -z "$account" ] && [ -n "$path" ]; then
+      path="''${path#/}"
+      account="''${path%%/*}"
+    fi
+    account="''${account:-fkz}"
+    case "$account" in
+      fkz|qelg) ;;
+      *)
+        echo "unsupported GitHub App account: $account" >&2
+        exit 1
+        ;;
+    esac
+    export GITHUB_APP_ACCOUNT="$account"
     exec ${githubAppCredentialClient}/bin/github-app-credential-client
   '';
-  githubAppGh = pkgs.writeShellScriptBin "github-app-gh" ''
-    set -eu
-    response=$(${githubAppCredentialClient}/bin/github-app-credential-client)
-    token=
-    while IFS= read -r line; do
-      case "$line" in
-        password=*) token="''${line#password=}" ;;
-      esac
-    done <<EOF
-    $response
-    EOF
-    test -n "$token"
-    GH_TOKEN="$token" exec ${pkgs.gh}/bin/gh "$@"
+  githubAppGhCommand = pkgs.writers.writePython3Bin "github-app-gh" { } ''
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    allowed_accounts = {"fkz", "qelg"}
+
+
+    def owner_from_repo(value):
+        value = value.removeprefix("git@github.com:")
+        value = value.removeprefix("ssh://git@github.com/")
+        value = value.removeprefix("https://github.com/")
+        value = value.removeprefix("http://github.com/")
+        value = value.lstrip("/")
+        if "/" not in value:
+            return None
+        return value.split("/", 1)[0]
+
+
+    def repo_from_args(arguments):
+        for index, argument in enumerate(arguments):
+            if argument in {"-R", "--repo"}:
+                if index + 1 < len(arguments):
+                    return arguments[index + 1]
+            if argument.startswith("--repo="):
+                return argument.split("=", 1)[1]
+            if argument.startswith("-R") and len(argument) > 2:
+                return argument[2:]
+        for argument in arguments:
+            route = argument.lstrip("/").split("/")
+            if len(route) > 2 and route[0] == "repos":
+                return "/".join(route[1:3])
+            if owner_from_repo(argument) in allowed_accounts:
+                return argument
+        return None
+
+
+    account = os.environ.get("GITHUB_APP_ACCOUNT")
+    if not account:
+        repository = os.environ.get("GH_REPO")
+        repository = repository or repo_from_args(sys.argv[1:])
+        if not repository:
+            git = shutil.which("git")
+            if git:
+                remote = subprocess.run(
+                    [git, "remote", "get-url", "origin"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if remote.returncode == 0:
+                    repository = remote.stdout.strip()
+        account = owner_from_repo(repository) if repository else None
+        account = account or "fkz"
+    if account not in allowed_accounts:
+        raise SystemExit(f"unsupported GitHub App account: {account}")
+
+    environment = os.environ.copy()
+    environment["GITHUB_APP_ACCOUNT"] = account
+    credential_client = shutil.which("github-app-credential-client")
+    if not credential_client:
+        raise SystemExit("github-app-credential-client not found in PATH")
+    response = subprocess.run(
+        [credential_client],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    ).stdout
+    token = next(
+        (
+            line.removeprefix("password=")
+            for line in response.splitlines()
+            if line.startswith("password=")
+        ),
+        "",
+    )
+    if not token:
+        raise SystemExit("GitHub credential broker returned no token")
+    environment["GH_TOKEN"] = token
+    os.execve(
+        "${pkgs.gh}/bin/gh",
+        ["gh", *sys.argv[1:]],
+        environment,
+    )
+  '';
+  githubAppGh = pkgs.runCommand "github-app-gh-wrapper" { } ''
+    mkdir -p "$out/bin"
+    ln -s ${githubAppGhCommand}/bin/github-app-gh "$out/bin/gh"
+    ln -s ${githubAppGhCommand}/bin/github-app-gh \
+      "$out/bin/github-app-gh"
   '';
   githubAppCredentialBroker = pkgs.writers.writePython3Bin "hermes-github-credential-broker" { } ''
     import os
@@ -516,6 +612,7 @@ let
     cat > "$out/etc/gitconfig" <<'EOF'
     [credential "https://github.com"]
       helper = /bin/github-app-git-credential
+      useHttpPath = true
     EOF
   '';
   hermesNixSandboxLinkCommands = builtins.concatStringsSep "\n" (map (package: ''
