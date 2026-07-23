@@ -8,16 +8,20 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     paseo.url = "github:getpaseo/paseo";
+    llm-harness = {
+      url = "github:qelg/harness";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-  outputs = inputs@{ self, nixpkgs, hermes-agent, paseo, ... }: {
+  outputs = inputs@{ self, nixpkgs, hermes-agent, paseo, llm-harness, ... }: {
     # NOTE: 'nixos' is the default hostname
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
       modules = [
         hermes-agent.nixosModules.default
         paseo.nixosModules.default
+        llm-harness.nixosModules.default
         ./configuration.nix
       ];
     };
   };
 }
-

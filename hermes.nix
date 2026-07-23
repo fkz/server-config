@@ -3,6 +3,7 @@
 let
   hermesApiServerPort = 8642;
   hermesApiTailnetHttpsPort = 8643;
+  harnessPort = 8765;
   hermesApiSecretFile = "/var/lib/hermes/api-server.env";
   hermesChatKanbanWorkspaces =
     "/var/lib/hermes/.hermes/kanban/boards/hermes-chat/workspaces";
@@ -1219,7 +1220,11 @@ in
 
   systemd.services.hermes-nix-sandbox-image = {
     description = "Load the rootless Podman image for Hermes Nix sandboxing";
-    before = [ "hermes-agent.service" "hermes-serve.service" ];
+    before = [
+      "hermes-agent.service"
+      "hermes-serve.service"
+      "llm-harness.service"
+    ];
     requiredBy = [ "hermes-agent.service" "hermes-serve.service" ];
     after = [ "nix-daemon.service" ];
 
@@ -1257,7 +1262,38 @@ in
   # Restrict the remote desktop backend to the tailnet. The NixOS firewall
   # still blocks port 9119 on the public network interfaces.
   services.tailscale.enable = true;
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 9119 ];
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 9119 harnessPort ];
+
+  # Harness is exposed directly on the Tailnet interface and uses the same
+  # Nix-built sandbox image as Hermes for its built-in Podman tool.
+  services."llm-harness" = {
+    enable = true;
+    host = "0.0.0.0";
+    port = harnessPort;
+    podmanImage = hermesNixSandboxImageRef;
+    podmanImagePackage = hermesNixSandboxImage;
+    extraPath = [ rootlessPodmanWrapperPath ];
+    environment = {
+      CONTAINERS_CONF = toString hermesPodmanContainerConf;
+      XDG_RUNTIME_DIR = "/run/llm-harness-podman";
+    };
+  };
+
+  users.users."llm-harness" = {
+    subUidRanges = [{ startUid = 165536; count = 65536; }];
+    subGidRanges = [{ startGid = 165536; count = 65536; }];
+  };
+
+  systemd.services."llm-harness" = {
+    after = [ "tailscaled.service" "hermes-nix-sandbox-image.service" ];
+    wants = [ "tailscaled.service" ];
+    path = [ pkgs.gzip pkgs.gnutar pkgs.coreutils ];
+    restartTriggers = [ hermesNixSandboxImage ];
+    serviceConfig = {
+      RuntimeDirectory = "llm-harness-podman";
+      RuntimeDirectoryMode = "0700";
+    };
+  };
 
   # Serve the full browser dashboard (including the embedded chat), not the
   # headless `hermes serve` backend used exclusively by native remote clients.
