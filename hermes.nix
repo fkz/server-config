@@ -1103,7 +1103,7 @@ in
     wantedBy = [ "sockets.target" ];
     listenStreams = [ nixosUpdateBrokerSocket ];
     socketConfig = {
-      SocketMode = "0600";
+      SocketMode = "0660";
       SocketUser = "hermes";
       SocketGroup = "hermes";
     };
