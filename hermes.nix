@@ -280,6 +280,8 @@ let
   '';
 
   githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
+  githubCredentialSocketVolume =
+    "${githubCredentialSocket}:${githubCredentialSocket}:rw";
 
   # The token minter is a Nix package, not a mutable helper in Hermes' state
   # directory. It reads the private key and App ID only at runtime, so neither
@@ -574,6 +576,17 @@ let
     while True:
         connection, _ = listener.accept()
         threading.Thread(target=handle, args=(connection,), daemon=True).start()
+  '';
+
+  harnessPodman = pkgs.writeShellScriptBin "podman" ''
+    set -eu
+    if [ "''${1:-}" = run ]; then
+      shift
+      exec ${pkgs.podman}/bin/podman run \
+        --volume ${githubCredentialSocketVolume} \
+        "$@"
+    fi
+    exec ${pkgs.podman}/bin/podman "$@"
   '';
 
   # Baseline required by Hermes' remote terminal, file, and code-execution
@@ -1187,9 +1200,9 @@ in
     wantedBy = [ "sockets.target" ];
     listenStreams = [ githubCredentialSocket ];
     socketConfig = {
-      SocketMode = "0600";
+      SocketMode = "0660";
       SocketUser = "hermes";
-      SocketGroup = "hermes";
+      SocketGroup = "llm-harness";
     };
   };
 
@@ -1287,7 +1300,7 @@ in
   systemd.services."llm-harness" = {
     after = [ "tailscaled.service" "hermes-nix-sandbox-image.service" ];
     wants = [ "tailscaled.service" ];
-    path = [ pkgs.gzip pkgs.gnutar pkgs.coreutils ];
+    path = lib.mkBefore [ harnessPodman pkgs.gzip pkgs.gnutar pkgs.coreutils ];
     restartTriggers = [ hermesNixSandboxImage ];
     serviceConfig = {
       # Rootless Podman must be able to execute the setuid newuidmap/newgidmap
