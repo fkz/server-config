@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   hermesApiServerPort = 8642;
@@ -1290,6 +1290,9 @@ in
     path = [ pkgs.gzip pkgs.gnutar pkgs.coreutils ];
     restartTriggers = [ hermesNixSandboxImage ];
     serviceConfig = {
+      # Rootless Podman must be able to execute the setuid newuidmap/newgidmap
+      # wrappers when the harness module's preStart loads the shared image.
+      NoNewPrivileges = lib.mkForce false;
       RuntimeDirectory = "llm-harness-podman";
       RuntimeDirectoryMode = "0700";
     };
