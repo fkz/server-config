@@ -46,6 +46,26 @@
         "type": "github"
       }
     },
+    "llm-harness": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1784768386,
+        "narHash": "sha256-SNnmDuObeXZTLddKa4fkF6+OcgOg9iZJI+MZZzivH4s=",
+        "owner": "qelg",
+        "repo": "harness",
+        "rev": "c61ad1240cee4bc244832bb32abc9db122e658ae",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qelg",
+        "repo": "harness",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1783549019,
@@ -170,6 +190,7 @@
     "root": {
       "inputs": {
         "hermes-agent": "hermes-agent",
+        "llm-harness": "llm-harness",
         "nixpkgs": "nixpkgs",
         "paseo": "paseo"
       }
