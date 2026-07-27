@@ -282,6 +282,7 @@ let
   githubCredentialSocket = "/run/hermes-github-credential-broker/socket";
   githubCredentialSocketVolume =
     "${githubCredentialSocket}:${githubCredentialSocket}:rw";
+  nixDaemonSocket = "/nix/var/nix/daemon-socket";
 
   # The token minter is a Nix package, not a mutable helper in Hermes' state
   # directory. It reads the private key and App ID only at runtime, so neither
@@ -583,6 +584,9 @@ let
     if [ "''${1:-}" = run ]; then
       shift
       exec ${pkgs.podman}/bin/podman run \
+        --volume /nix/var/nix/profiles:/nix/var/nix/profiles:ro \
+        --volume /etc/nix:/etc/nix:ro \
+        --volume ${nixDaemonSocket}:${nixDaemonSocket}:rw \
         --volume ${githubCredentialSocketVolume} \
         "$@"
     fi
@@ -1298,10 +1302,29 @@ in
   };
 
   systemd.services."llm-harness" = {
-    after = [ "tailscaled.service" "hermes-nix-sandbox-image.service" ];
-    wants = [ "tailscaled.service" ];
+    after = [
+      "tailscaled.service"
+      "nix-daemon.socket"
+      "hermes-nix-sandbox-image.service"
+    ];
+    wants = [ "tailscaled.service" "nix-daemon.socket" ];
     path = lib.mkBefore [ harnessPodman pkgs.gzip pkgs.gnutar pkgs.coreutils ];
-    restartTriggers = [ hermesNixSandboxImage ];
+    restartTriggers = [ hermesNixSandboxImage harnessPodman ];
+    # Containers survive individual tool calls. Remove only containers created
+    # before the Nix daemon mount was introduced, otherwise `podman start`
+    # would keep using their immutable, incomplete mount configuration.
+    preStart = lib.mkAfter ''
+      for container in $(${pkgs.podman}/bin/podman container ls \
+        --all --quiet --filter label=llm-harness=true); do
+        mounts="$(${pkgs.podman}/bin/podman container inspect \
+          --format '{{range .Mounts}}{{println .Destination}}{{end}}' \
+          "$container")"
+        case "$mounts" in
+          *${nixDaemonSocket}*) ;;
+          *) ${pkgs.podman}/bin/podman container rm --force "$container" ;;
+        esac
+      done
+    '';
     serviceConfig = {
       # Rootless Podman must be able to execute the setuid newuidmap/newgidmap
       # wrappers when the harness module's preStart loads the shared image.
