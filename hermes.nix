@@ -631,7 +631,7 @@ let
     cat > "$out/etc/gitconfig" <<'EOF'
     [user]
       name = Harness Bot
-      email = hermes-agent@localhost
+      email = harness-agent@localhost
     [credential "https://github.com"]
       helper = /bin/github-app-git-credential
       useHttpPath = true
