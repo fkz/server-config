@@ -4,6 +4,7 @@ let
   hermesApiServerPort = 8642;
   hermesApiTailnetHttpsPort = 8643;
   harnessPort = 8765;
+  harnessOpenRouterSecretFile = "/var/lib/llm-harness/openrouter.env";
   hermesApiSecretFile = "/var/lib/hermes/api-server.env";
   hermesChatKanbanWorkspaces =
     "/var/lib/hermes/.hermes/kanban/boards/hermes-chat/workspaces";
@@ -1291,6 +1292,11 @@ in
     podmanImagePackage = hermesNixSandboxImage;
     extraPath = [ rootlessPodmanWrapperPath ];
     skills = [ harnessSkills ];
+    # Provision this root-owned file outside Git with:
+    #   HARNESS_OPENROUTER_API_KEY=<key>
+    # The Harness module passes it to systemd as an EnvironmentFile, keeping
+    # the key out of both this repository and the Nix store.
+    environmentFile = harnessOpenRouterSecretFile;
     environment = {
       CONTAINERS_CONF = toString hermesPodmanContainerConf;
       XDG_RUNTIME_DIR = "/run/llm-harness-podman";
@@ -1315,6 +1321,11 @@ in
     # before the Nix daemon mount was introduced, otherwise `podman start`
     # would keep using their immutable, incomplete mount configuration.
     preStart = lib.mkAfter ''
+      if ! test -n "$HARNESS_OPENROUTER_API_KEY"; then
+        echo "llm-harness: HARNESS_OPENROUTER_API_KEY is not configured" >&2
+        exit 1
+      fi
+
       for container in $(${pkgs.podman}/bin/podman container ls \
         --all --quiet --filter label=llm-harness=true); do
         mounts="$(${pkgs.podman}/bin/podman container inspect \
