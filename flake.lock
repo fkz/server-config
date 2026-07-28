@@ -21,6 +21,22 @@
         "type": "github"
       }
     },
+    "harness-skills": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785218912,
+        "narHash": "sha256-gCwjRyizgkswV1uKyCFux3XWK3OD8sKn7jB+F7WIG9M=",
+        "owner": "qelg",
+        "repo": "skills",
+        "rev": "062b60f54535b9c2125dd4b58f465ed0e204b7d4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qelg",
+        "repo": "skills",
+        "type": "github"
+      }
+    },
     "hermes-agent": {
       "inputs": {
         "flake-parts": "flake-parts",
@@ -53,11 +69,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785185251,
-        "narHash": "sha256-Rp7qKTIhlkW2ydQybONAHVXB7+ycTsHhKBAP6t8usJw=",
+        "lastModified": 1785218872,
+        "narHash": "sha256-xNDo0uK/BU/zp5YiOFqN4dBxfgzZg42tR/QkdnGLI/c=",
         "owner": "qelg",
         "repo": "harness",
-        "rev": "005eec4cee06e9d3f35d561801195c4f073156e3",
+        "rev": "7f89bae5c6384aa0b9691ec0c66e35b7450ae791",
         "type": "github"
       },
       "original": {
@@ -189,6 +205,7 @@
     },
     "root": {
       "inputs": {
+        "harness-skills": "harness-skills",
         "hermes-agent": "hermes-agent",
         "llm-harness": "llm-harness",
         "nixpkgs": "nixpkgs",
