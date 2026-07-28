@@ -1291,6 +1291,7 @@ in
     enable = true;
     host = "0.0.0.0";
     port = harnessPort;
+    promptCacheKey = "llm-harness";
     podmanImage = hermesNixSandboxImageRef;
     podmanImagePackage = hermesNixSandboxImage;
     extraPath = [ rootlessPodmanWrapperPath ];
