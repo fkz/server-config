@@ -629,6 +629,9 @@ let
   hermesNixSandboxEtc = pkgs.runCommand "hermes-nix-sandbox-etc" { } ''
     mkdir -p "$out/etc"
     cat > "$out/etc/gitconfig" <<'EOF'
+    [user]
+      name = Harness Bot
+      email = harness-agent@localhost
     [credential "https://github.com"]
       helper = /bin/github-app-git-credential
       useHttpPath = true
