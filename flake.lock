@@ -24,11 +24,11 @@
     "harness-skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1785218912,
-        "narHash": "sha256-gCwjRyizgkswV1uKyCFux3XWK3OD8sKn7jB+F7WIG9M=",
+        "lastModified": 1785220025,
+        "narHash": "sha256-Pfuw8+lPE0EqfTNVj8pJ+0RkGja/72tUfxMjnKihsE0=",
         "owner": "qelg",
         "repo": "skills",
-        "rev": "062b60f54535b9c2125dd4b58f465ed0e204b7d4",
+        "rev": "40653bd2ebf2681c4dcc59569d7b5b26c62d366a",
         "type": "github"
       },
       "original": {
