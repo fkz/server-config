@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, harnessSkills, ... }:
 
 let
   hermesApiServerPort = 8642;
@@ -1290,6 +1290,7 @@ in
     podmanImage = hermesNixSandboxImageRef;
     podmanImagePackage = hermesNixSandboxImage;
     extraPath = [ rootlessPodmanWrapperPath ];
+    skills = [ harnessSkills ];
     environment = {
       CONTAINERS_CONF = toString hermesPodmanContainerConf;
       XDG_RUNTIME_DIR = "/run/llm-harness-podman";

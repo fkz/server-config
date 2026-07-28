@@ -12,10 +12,15 @@
       url = "github:qelg/harness";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    harness-skills = {
+      url = "github:qelg/skills";
+      flake = false;
+    };
   };
   outputs = inputs@{ self, nixpkgs, hermes-agent, paseo, llm-harness, ... }: {
     # NOTE: 'nixos' is the default hostname
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+      specialArgs.harnessSkills = inputs.harness-skills;
       modules = [
         hermes-agent.nixosModules.default
         paseo.nixosModules.default
