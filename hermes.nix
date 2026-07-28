@@ -630,7 +630,7 @@ let
     mkdir -p "$out/etc"
     cat > "$out/etc/gitconfig" <<'EOF'
     [user]
-      name = Hermes Agent
+      name = Harness Bot
       email = hermes-agent@localhost
     [credential "https://github.com"]
       helper = /bin/github-app-git-credential
