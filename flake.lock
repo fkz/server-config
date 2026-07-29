@@ -69,11 +69,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785355698,
-        "narHash": "sha256-Thz9dH3rCeWVWCiS7UAOWRhtBXMp/hn+wvfDTYQpHTM=",
+        "lastModified": 1785362218,
+        "narHash": "sha256-Lfiuoqr17t4liQElMGqUXdneXOu/nII02FXvP7nARFM=",
         "owner": "qelg",
         "repo": "harness",
-        "rev": "ddfaabca730684aa741e7e53899f5527b02ba0cc",
+        "rev": "657af7e8f001327fac45ef511ced7f1a4b7ec12c",
         "type": "github"
       },
       "original": {
