@@ -1292,6 +1292,8 @@ in
     host = "0.0.0.0";
     port = harnessPort;
     promptCacheKey = "llm-harness";
+    namerProvider = "openrouter";
+    namerModel = "deepseek/deepseek-v4-flash";
     podmanImage = hermesNixSandboxImageRef;
     podmanImagePackage = hermesNixSandboxImage;
     extraPath = [ rootlessPodmanWrapperPath ];
