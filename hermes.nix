@@ -1294,6 +1294,11 @@ in
     promptCacheKey = "llm-harness";
     namerProvider = "openrouter";
     namerModel = "deepseek/deepseek-v4-flash";
+    parallelity = {
+      terminal = 4;
+      "skill-view" = 4;
+      "llm-provider-runner" = 2;
+    };
     podmanImage = hermesNixSandboxImageRef;
     podmanImagePackage = hermesNixSandboxImage;
     extraPath = [ rootlessPodmanWrapperPath ];
