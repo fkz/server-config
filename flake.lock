@@ -24,11 +24,11 @@
     "harness-skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1785361156,
-        "narHash": "sha256-IMEQgsJkhuxiWS3Nv/AiDWsRXjxNZEvf4qUe4vc0O70=",
+        "lastModified": 1785397467,
+        "narHash": "sha256-X9RE1bh32eML9yb2a7eMSMOksy8GCIwKM/NcMqDpu5E=",
         "owner": "qelg",
         "repo": "skills",
-        "rev": "7350e1b1711d876170a787f56a678c03124da448",
+        "rev": "4bc287ba07bdc5728850b540da826a89b4f0c609",
         "type": "github"
       },
       "original": {
@@ -69,11 +69,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785383457,
-        "narHash": "sha256-lHudu49Yb81WJqx4jSpM/cM8Jao5pe4ijXAkK1uj+kM=",
+        "lastModified": 1785397074,
+        "narHash": "sha256-nMIs9ZJHlHzxqz9/b0Jtp0dPBuitje05jBGOcxXf8kg=",
         "owner": "qelg",
         "repo": "harness",
-        "rev": "5cc16ad8a426693ba33c16d83da3fa5c96a88ff5",
+        "rev": "34a2c3ca84dc3496617e5eaf12bfd358a269727c",
         "type": "github"
       },
       "original": {
