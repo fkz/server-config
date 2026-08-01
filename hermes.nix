@@ -1292,6 +1292,9 @@ in
     host = "0.0.0.0";
     port = harnessPort;
     promptCacheKey = "llm-harness";
+    # Temporarily enabled while investigating ChatGPT Codex prompt caching.
+    # This logs request and response content; disable it after the investigation.
+    logProviderEvents = true;
     namerProvider = "openrouter";
     namerModel = "deepseek/deepseek-v4-flash";
     parallelity = {
