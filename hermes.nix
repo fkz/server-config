@@ -640,30 +640,24 @@ let
   hermesNixSandboxLinkCommands = builtins.concatStringsSep "\n" (map (package: ''
     if [ -d ${package}/bin ]; then
       for program in ${package}/bin/*; do
-      # Route package paths through an image-local alias. This prevents Nix's
-      # reference scanner from treating them as image dependencies, while the
-      # alias itself resolves to the deliberately mounted host store at runtime.
-      target="/.nix-store/''${program#/nix/store/}"
-      ln -sfn "$target" "bin/$(basename "$program")"
+      ln -sfn "$program" "bin/$(basename "$program")"
       done
     fi
   '') hermesNixSandboxPackages);
 
-  # Only a symlink tree is put into the OCI layer. Its target closures are
-  # retained by system.extraDependencies and reached via the read-only host
-  # /nix/store mount. Do not record the target paths as references of this
-  # output: dockerTools otherwise follows those references and copies every
-  # package closure into the image.
+  # Only a symlink tree is put into the OCI layer. Keep its /nix/store
+  # targets as Nix references so their closures remain available on the host;
+  # the running container resolves the symlinks through its read-only host
+  # store mount. The archive below is assembled directly, so these references
+  # are not copied into the image layer.
   hermesNixSandboxRoot = pkgs.runCommand "hermes-nix-sandbox-root" {
     __structuredAttrs = true;
-    unsafeDiscardReferences.out = true;
   } ''
     mkdir -p "$out/bin" "$out/etc" "$out/workspace"
     cd "$out"
     ln -s /nix/store "$out/.nix-store"
     ${hermesNixSandboxLinkCommands}
-    gitconfig_target="${hermesNixSandboxEtc}"
-    ln -s "/.nix-store/''${gitconfig_target#/nix/store/}/etc/gitconfig" "$out/etc/gitconfig"
+    ln -s ${hermesNixSandboxEtc}/etc/gitconfig "$out/etc/gitconfig"
   '';
   hermesNixSandboxEnv = [
     # Hermes' Docker backend supplies /root as an ephemeral tmpfs. Unlike
@@ -694,7 +688,6 @@ let
   # only the symlink tree and not serialising any package closure.
   hermesNixSandboxImage = pkgs.runCommand "hermes-nix-sandbox.tar.gz" {
     __structuredAttrs = true;
-    unsafeDiscardReferences.out = true;
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnutar pkgs.gzip ];
   } ''
     mkdir -p archive/layer
@@ -1196,8 +1189,8 @@ in
   };
 
   # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
-  # store targets of its /bin symlinks even if no other system path needs one.
-  system.extraDependencies = hermesNixSandboxPackages;
+  # store targets of its symlinks even if no other system path needs them.
+  system.extraDependencies = hermesNixSandboxPackages ++ [ hermesNixSandboxEtc ];
 
   # The socket is owned by `hermes` (0600). In a rootless Podman container,
   # container UID 0 maps to that unprivileged host user, not to host root.
