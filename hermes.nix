@@ -653,7 +653,9 @@ let
   hermesNixSandboxRoot = pkgs.runCommand "hermes-nix-sandbox-root" {
     __structuredAttrs = true;
   } ''
-    mkdir -p "$out/bin" "$out/etc" "$out/workspace"
+    # The terminal backend runs arbitrary commands, many of which require the
+    # conventional world-writable temporary directory.
+    mkdir -p "$out/bin" "$out/etc" "$out/tmp" "$out/workspace"
     cd "$out"
     ln -s /nix/store "$out/.nix-store"
     ${hermesNixSandboxLinkCommands}
@@ -690,8 +692,13 @@ let
     __structuredAttrs = true;
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnutar pkgs.gzip ];
   } ''
-    mkdir -p archive/layer
-    tar -C ${hermesNixSandboxRoot} \
+    # Nix makes store directories read-only. Stage the symlink tree outside
+    # the store so /tmp keeps its required sticky, world-writable mode in the
+    # image layer.
+    mkdir -p archive/root archive/layer
+    cp -a ${hermesNixSandboxRoot}/. archive/root
+    chmod 1777 archive/root/tmp
+    tar -C archive/root \
       --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
       -cf archive/layer/layer.tar .
     diff_id="$(sha256sum archive/layer/layer.tar | cut -d ' ' -f 1)"
