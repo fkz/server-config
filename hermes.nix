@@ -1305,7 +1305,7 @@ in
     port = harnessPort;
     promptCacheKey = "llm-harness";
     namerProvider = "openrouter";
-    namerModel = "deepseek/deepseek-v4-latest";
+    namerModel = "deepseek/deepseek-v4-flash-latest";
     parallelity = {
       terminal = 4;
       "skill-view" = 4;
