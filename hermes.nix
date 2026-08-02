@@ -587,6 +587,7 @@ let
       exec ${pkgs.podman}/bin/podman run \
         --volume /nix/var/nix/profiles:/nix/var/nix/profiles:ro \
         --volume /etc/nix:/etc/nix:ro \
+        --volume /etc/static/nix:/etc/static/nix:ro \
         --volume ${nixDaemonSocket}:${nixDaemonSocket}:rw \
         --volume ${githubCredentialSocketVolume} \
         "$@"
@@ -1066,6 +1067,10 @@ in
           "/nix/store:/nix/store:ro"
           "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
           "/etc/nix:/etc/nix:ro"
+          # NixOS makes /etc/nix/nix.conf a symlink into /etc/static/nix.
+          # Mount the symlink target too; mounting only /etc/nix leaves the
+          # client configuration dangling inside the container.
+          "/etc/static/nix:/etc/static/nix:ro"
 
           # Deliberate capability grant: permits `nix build`/`nix run` through
           # the host daemon without granting Hermes' home or secret files.
