@@ -668,6 +668,9 @@ let
     "PATH=/bin"
     "GIT_CONFIG_SYSTEM=/etc/gitconfig"
     "NIX_REMOTE=daemon"
+    # Let legacy Nix expressions resolve <nixpkgs> from the host store mounted
+    # into the container.
+    "NIX_PATH=nixpkgs=${pkgs.path}"
     "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
     "NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
   ];
@@ -1196,8 +1199,12 @@ in
   };
 
   # The image tarball is opaque to Nix's runtime-reference scanner. Retain the
-  # store targets of its symlinks even if no other system path needs them.
-  system.extraDependencies = hermesNixSandboxPackages ++ [ hermesNixSandboxEtc ];
+  # store targets of its symlinks and NIX_PATH even if no other system path
+  # needs them.
+  system.extraDependencies = hermesNixSandboxPackages ++ [
+    hermesNixSandboxEtc
+    pkgs.path
+  ];
 
   # The socket is owned by `hermes` (0600). In a rootless Podman container,
   # container UID 0 maps to that unprivileged host user, not to host root.
