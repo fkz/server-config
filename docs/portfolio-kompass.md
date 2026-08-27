@@ -3,10 +3,11 @@
 Portfolio Kompass runs as an unprivileged NixOS systemd service and is only
 available inside the Tailnet:
 
-<https://home.taila70923.ts.net:9443>
+<http://home/portfolio/>
 
-The application listens on `127.0.0.1:9320`; Tailscale Serve terminates HTTPS.
-No public firewall port is opened.
+The application listens on `127.0.0.1:9320`. The existing nginx Tailnet vhost
+proxies `/portfolio/` to it and only permits Tailscale source addresses. No
+additional firewall port is opened.
 
 ## Persistent data
 
