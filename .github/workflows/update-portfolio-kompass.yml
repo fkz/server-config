@@ -8,6 +8,7 @@ on:
 permissions:
   actions: write
   contents: write
+  pull-requests: write
 
 concurrency:
   group: update-portfolio-kompass
@@ -60,20 +61,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Commit and push lock update
+      - name: Commit, open, and merge lock update PR
         if: steps.update.outputs.changed == 'true'
         run: |
           set -euo pipefail
 
+          branch="automation/update-portfolio-kompass-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
           git add flake.lock
           git commit -m "chore: update Portfolio Kompass input"
-          git push origin HEAD:main
+          git push origin "HEAD:$branch"
+
+          pr_url=$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: update Portfolio Kompass input" \
+            --body "Automated update of the locked Portfolio Kompass application revision.")
+          gh pr merge "$pr_url" --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       # Commits made with GITHUB_TOKEN intentionally do not emit another push
       # workflow. workflow_dispatch is the supported exception, so explicitly
-      # start the normal validation and deployment gate after the push.
+      # start the normal validation and deployment gate after merging the PR.
       - name: Start validation and deployment
         if: steps.update.outputs.changed == 'true'
         run: gh workflow run validate.yml --ref main
