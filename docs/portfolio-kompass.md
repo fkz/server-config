@@ -20,7 +20,38 @@ The SQLite database is stored outside the Nix store:
 Back up this file together with its `-wal` and `-shm` files, or use SQLite's
 online backup command while the service is running.
 
-## Market-data API
+## Market data
+
+Portfolio Performance is the preferred source for historical prices. Its OAuth
+refresh token is stored outside Git and the Nix store:
+
+```text
+/var/lib/portfolio-kompass/portfolio-performance-refresh-token
+```
+
+For the one-time interactive login, forward the registered loopback callback
+port while connecting over SSH:
+
+```bash
+ssh -L 49968:localhost:49968 SERVER
+sudo -u portfolio-kompass portfolio-kompass-auth \
+  /var/lib/portfolio-kompass/portfolio-performance-refresh-token
+```
+
+Open the URL printed by the command in the local browser and complete the
+Portfolio Performance login. The helper writes the token with mode `0600` and
+never prints it. Then restart the application and test the import:
+
+```bash
+sudo systemctl restart portfolio-kompass
+sudo systemctl start portfolio-kompass-sync
+sudo journalctl -u portfolio-kompass-sync -n 50 --no-pager
+```
+
+The integration uses the personal/internal-use access granted by the Portfolio
+Performance terms. Do not share credentials or downloaded market data.
+
+### Twelve Data fallback
 
 The first activation creates this root-only environment file and generates a
 random `CRON_SECRET`:
@@ -36,9 +67,10 @@ sudo sh -c 'printf "TWELVE_DATA_API_KEY=%s\n" "$1" >> /var/lib/portfolio-kompass
 sudo systemctl restart portfolio-kompass
 ```
 
-Do not commit the key. `portfolio-kompass-sync.timer` imports daily EUR prices
-at 20:30 server time. Without an API key, the timer exits successfully without
-making a request.
+Do not commit the key. When a Portfolio Performance token exists, the
+application prefers it over Twelve Data. `portfolio-kompass-sync.timer` imports
+daily EUR prices at 20:30 server time. Without either source, the timer exits
+successfully without making a request.
 
 ## Operations
 

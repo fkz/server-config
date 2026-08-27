@@ -4,6 +4,7 @@ let
   appPort = 9320;
   dataDir = "/var/lib/portfolio-kompass";
   envFile = "${dataDir}/portfolio-kompass.env";
+  portfolioPerformanceToken = "${dataDir}/portfolio-performance-refresh-token";
   package = portfolioKompass.packages.${pkgs.system}.default;
 in
 {
@@ -17,6 +18,8 @@ in
   systemd.tmpfiles.rules = [
     "d ${dataDir} 0750 portfolio-kompass portfolio-kompass -"
   ];
+
+  environment.systemPackages = [ package ];
 
   # Keep API credentials outside Git and the Nix store. A cron secret is
   # generated once; TWELVE_DATA_API_KEY can be added manually to this file.
@@ -60,6 +63,7 @@ in
       HOSTNAME = "127.0.0.1";
       PORT = toString appPort;
       DATABASE_PATH = "${dataDir}/portfolio.db";
+      PORTFOLIO_PERFORMANCE_TOKEN_PATH = portfolioPerformanceToken;
     };
 
     serviceConfig = {
@@ -109,8 +113,8 @@ in
 
     path = [ pkgs.curl ];
     script = ''
-      if test -z "''${TWELVE_DATA_API_KEY:-}"; then
-        echo "TWELVE_DATA_API_KEY is not configured; skipping price import"
+      if ! test -s ${portfolioPerformanceToken} && test -z "''${TWELVE_DATA_API_KEY:-}"; then
+        echo "No market-data access is configured; skipping price import"
         exit 0
       fi
 
