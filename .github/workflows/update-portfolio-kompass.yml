@@ -1,0 +1,81 @@
+name: Update Portfolio Kompass input
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: update-portfolio-kompass
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update locked application revision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Update Portfolio Kompass input
+        id: update
+        run: |
+          set -euo pipefail
+
+          nix flake update portfolio-kompass
+          if git diff --quiet -- flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          app_revision=$(jq -r '.nodes["portfolio-kompass"].locked.rev' flake.lock)
+          conclusion=$(gh api \
+            "repos/qelg/portfolio-kompass/commits/$app_revision/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Build application package")][0].conclusion // ""')
+
+          if [ "$conclusion" != "success" ]; then
+            echo "Nix build for qelg/portfolio-kompass@$app_revision is not successful yet; leaving main unchanged"
+            git restore flake.lock
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          nix flake check --no-build
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Commit and push lock update
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.lock
+          git commit -m "chore: update Portfolio Kompass input"
+          git push origin HEAD:main
+
+      # Commits made with GITHUB_TOKEN intentionally do not emit another push
+      # workflow. workflow_dispatch is the supported exception, so explicitly
+      # start the normal validation and deployment gate after the push.
+      - name: Start validation and deployment
+        if: steps.update.outputs.changed == 'true'
+        run: gh workflow run validate.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
