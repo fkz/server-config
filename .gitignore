@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+node_modules/
+.next/
+*.db
+*.db-shm
+*.db-wal
+.env*
+.amp/

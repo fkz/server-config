@@ -16,11 +16,18 @@
       url = "github:qelg/skills";
       flake = false;
     };
+    portfolio-kompass = {
+      url = "github:qelg/portfolio-kompass";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = inputs@{ self, nixpkgs, hermes-agent, paseo, llm-harness, ... }: {
     # NOTE: 'nixos' is the default hostname
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
-      specialArgs.harnessSkills = inputs.harness-skills;
+      specialArgs = {
+        harnessSkills = inputs.harness-skills;
+        portfolioKompass = inputs.portfolio-kompass;
+      };
       modules = [
         hermes-agent.nixosModules.default
         paseo.nixosModules.default
