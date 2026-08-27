@@ -153,6 +153,26 @@
         "type": "github"
       }
     },
+    "portfolio-kompass": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787851556,
+        "narHash": "sha256-tpSSMKWKN7pdw5vKMlDsLhPpBeybZWS8heJ3mKFVYeU=",
+        "owner": "qelg",
+        "repo": "portfolio-kompass",
+        "rev": "7633376fe1dce9a5a1a1684e27d4897cc735bd74",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qelg",
+        "repo": "portfolio-kompass",
+        "type": "github"
+      }
+    },
     "pyproject-build-systems": {
       "inputs": {
         "nixpkgs": [
@@ -209,7 +229,8 @@
         "hermes-agent": "hermes-agent",
         "llm-harness": "llm-harness",
         "nixpkgs": "nixpkgs",
-        "paseo": "paseo"
+        "paseo": "paseo",
+        "portfolio-kompass": "portfolio-kompass"
       }
     },
     "uv2nix": {

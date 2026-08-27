@@ -16,6 +16,7 @@
       ./hermes-skills-audit.nix
       ./matrix.nix
       ./paseo.nix
+      ./portfolio-kompass.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
@@ -140,4 +141,3 @@
   system.stateVersion = "25.05"; # Did you read the comment?
 
 }
-
