@@ -1,8 +1,7 @@
-{ config, pkgs, portfolioKompass, ... }:
+{ pkgs, portfolioKompass, ... }:
 
 let
   appPort = 9320;
-  tailnetHttpsPort = 9443;
   dataDir = "/var/lib/portfolio-kompass";
   envFile = "${dataDir}/portfolio-kompass.env";
   package = portfolioKompass.packages.${pkgs.system}.default;
@@ -81,19 +80,20 @@ in
     };
   };
 
-  # The dashboard contains private financial data. Keep the Node process on
-  # loopback and expose it only to authenticated devices in the Tailnet.
-  systemd.services.portfolio-kompass-tailnet-proxy = {
-    description = "Tailscale HTTPS proxy for Portfolio Kompass";
-    wantedBy = [ "multi-user.target" ];
-    wants = [ "tailscaled.service" "portfolio-kompass.service" ];
-    after = [ "tailscaled.service" "portfolio-kompass.service" ];
-
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --bg --https=${toString tailnetHttpsPort} http://127.0.0.1:${toString appPort}";
-      ExecStop = "${config.services.tailscale.package}/bin/tailscale serve --https=${toString tailnetHttpsPort} off";
+  # Reuse the existing Tailnet-only nginx vhost. The explicit source allowlist
+  # prevents requests to the public nginx listener with a forged Host header.
+  services.nginx.virtualHosts.home.locations = {
+    "= /portfolio" = {
+      return = "301 /portfolio/";
+    };
+    "/portfolio/" = {
+      proxyPass = "http://127.0.0.1:${toString appPort}";
+      proxyWebsockets = true;
+      extraConfig = ''
+        allow 100.64.0.0/10;
+        allow fd7a:115c:a1e0::/48;
+        deny all;
+      '';
     };
   };
 
@@ -118,7 +118,7 @@ in
         --retry 3 --retry-all-errors \
         -X POST \
         -H "Authorization: Bearer $CRON_SECRET" \
-        http://127.0.0.1:${toString appPort}/api/sync-prices
+        http://127.0.0.1:${toString appPort}/portfolio/api/sync-prices
     '';
   };
 
