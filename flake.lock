@@ -160,11 +160,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787872032,
-        "narHash": "sha256-jCiODtpjXsFI5RT5n30E0p0t94tq5r4fCuWiHB7BieA=",
+        "lastModified": 1787920847,
+        "narHash": "sha256-6S5vo/1hjVF22a2JlnRShlT9Omy39LXhP161FEjkVUo=",
         "owner": "qelg",
         "repo": "portfolio-kompass",
-        "rev": "1d7773b1689c5ed2c445ca73150ccebe76730295",
+        "rev": "6d029ead28e4864520f2d1a20f2c59fb10680ff8",
         "type": "github"
       },
       "original": {
